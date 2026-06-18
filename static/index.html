@@ -1,0 +1,652 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>네이버 랭킹 트래커</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: 'Segoe UI', -apple-system, sans-serif;
+      background: #f0f2f5;
+      color: #1a1a2e;
+      min-height: 100vh;
+    }
+
+    /* ── 헤더 ── */
+    header {
+      background: linear-gradient(135deg, #03c75a 0%, #00a845 100%);
+      color: #fff;
+      padding: 16px 24px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      box-shadow: 0 2px 8px rgba(0,0,0,.15);
+    }
+    header h1 { font-size: 1.25rem; font-weight: 700; letter-spacing: -.3px; }
+    header span { font-size: .8rem; opacity: .85; }
+
+    .collect-btn {
+      background: #fff;
+      color: #03c75a;
+      border: none;
+      padding: 8px 18px;
+      border-radius: 20px;
+      font-weight: 700;
+      font-size: .85rem;
+      cursor: pointer;
+      transition: opacity .2s;
+    }
+    .collect-btn:hover { opacity: .85; }
+    .collect-btn:disabled { opacity: .5; cursor: not-allowed; }
+
+    /* ── 탭 ── */
+    .tabs {
+      display: flex;
+      gap: 4px;
+      padding: 16px 24px 0;
+      background: #f0f2f5;
+    }
+    .tab {
+      padding: 9px 20px;
+      border-radius: 8px 8px 0 0;
+      background: #dde0e8;
+      cursor: pointer;
+      font-size: .875rem;
+      font-weight: 600;
+      color: #555;
+      border: none;
+      transition: background .15s, color .15s;
+    }
+    .tab.active { background: #fff; color: #03c75a; }
+
+    /* ── 메인 ── */
+    main {
+      padding: 0 24px 32px;
+      max-width: 1280px;
+      margin: 0 auto;
+    }
+
+    .panel {
+      background: #fff;
+      border-radius: 0 12px 12px 12px;
+      padding: 24px;
+      box-shadow: 0 1px 4px rgba(0,0,0,.08);
+      display: none;
+    }
+    .panel.active { display: block; }
+
+    /* ── 섹션 헤더 ── */
+    .section-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 16px;
+    }
+    .section-header h2 { font-size: 1rem; font-weight: 700; }
+
+    /* ── 인풋 행 ── */
+    .input-row {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 20px;
+      flex-wrap: wrap;
+    }
+    .input-row input, .input-row select {
+      flex: 1;
+      min-width: 160px;
+      padding: 9px 12px;
+      border: 1.5px solid #d8dce4;
+      border-radius: 8px;
+      font-size: .875rem;
+      outline: none;
+      transition: border-color .2s;
+    }
+    .input-row input:focus, .input-row select:focus { border-color: #03c75a; }
+
+    /* ── 버튼 ── */
+    .btn {
+      padding: 9px 18px;
+      border: none;
+      border-radius: 8px;
+      font-size: .875rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: opacity .2s;
+      white-space: nowrap;
+    }
+    .btn:hover { opacity: .85; }
+    .btn-primary { background: #03c75a; color: #fff; }
+    .btn-danger  { background: #ff4d4f; color: #fff; }
+    .btn-ghost   { background: transparent; color: #888; border: 1.5px solid #d8dce4; }
+    .btn-sm      { padding: 5px 12px; font-size: .78rem; }
+
+    /* ── 테이블 ── */
+    .table-wrap { overflow-x: auto; }
+    table { width: 100%; border-collapse: collapse; font-size: .85rem; }
+    th { background: #f7f8fa; font-weight: 600; color: #555; padding: 10px 12px; text-align: left; border-bottom: 2px solid #eee; }
+    td { padding: 10px 12px; border-bottom: 1px solid #f0f0f0; vertical-align: middle; }
+    tr:last-child td { border-bottom: none; }
+    tr:hover td { background: #fafcff; }
+
+    /* ── 순위 배지 ── */
+    .rank-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      font-weight: 700;
+      font-size: .9rem;
+    }
+    .rank-up   { color: #03c75a; }
+    .rank-down { color: #ff4d4f; }
+    .rank-same { color: #888; }
+    .rank-none { color: #bbb; font-style: italic; }
+
+    /* ── 상태 토글 ── */
+    .badge {
+      display: inline-block;
+      padding: 2px 10px;
+      border-radius: 12px;
+      font-size: .75rem;
+      font-weight: 600;
+    }
+    .badge-on  { background: #e6f9f0; color: #03a84e; }
+    .badge-off { background: #f5f5f5; color: #aaa; }
+
+    /* ── 키워드 태그 ── */
+    .kw-tags { display: flex; flex-wrap: wrap; gap: 4px; }
+    .kw-tag {
+      background: #e8f5e9;
+      color: #2e7d32;
+      border-radius: 10px;
+      padding: 2px 9px;
+      font-size: .75rem;
+    }
+
+    /* ── 차트 모달 ── */
+    #chartModal {
+      display: none;
+      position: fixed; inset: 0;
+      background: rgba(0,0,0,.45);
+      z-index: 999;
+      align-items: center;
+      justify-content: center;
+    }
+    #chartModal.open { display: flex; }
+    .modal-box {
+      background: #fff;
+      border-radius: 16px;
+      padding: 28px;
+      width: min(640px, 96vw);
+      box-shadow: 0 8px 32px rgba(0,0,0,.18);
+    }
+    .modal-box h3 { font-size: 1rem; margin-bottom: 16px; }
+    .modal-close {
+      float: right;
+      background: none;
+      border: none;
+      font-size: 1.4rem;
+      cursor: pointer;
+      color: #888;
+      line-height: 1;
+    }
+
+    /* ── 알림 토스트 ── */
+    #toast {
+      position: fixed;
+      bottom: 28px; right: 28px;
+      padding: 12px 20px;
+      background: #1a1a2e;
+      color: #fff;
+      border-radius: 10px;
+      font-size: .85rem;
+      opacity: 0;
+      transform: translateY(10px);
+      transition: opacity .3s, transform .3s;
+      z-index: 9999;
+      max-width: 320px;
+    }
+    #toast.show { opacity: 1; transform: translateY(0); }
+
+    .empty-msg { color: #bbb; text-align: center; padding: 28px 0; font-size: .9rem; }
+  </style>
+</head>
+<body>
+
+<header>
+  <div>
+    <h1>🚬 네이버 랭킹 트래커</h1>
+    <span id="lastCollected">마지막 수집: —</span>
+  </div>
+  <button class="collect-btn" id="collectBtn" onclick="manualCollect()">지금 수집</button>
+</header>
+
+<div class="tabs">
+  <button class="tab active" onclick="switchTab('rankings')">📊 랭킹 현황</button>
+  <button class="tab" onclick="switchTab('keywords')">🔍 키워드 TOP10</button>
+  <button class="tab" onclick="switchTab('products')">📦 상품 관리</button>
+  <button class="tab" onclick="switchTab('stores')">🏪 스토어 관리</button>
+  <button class="tab" onclick="switchTab('watchKeywords')">📌 키워드 관리</button>
+</div>
+
+<main>
+
+  <!-- ─── 랭킹 현황 ─── -->
+  <div id="tab-rankings" class="panel active">
+    <div class="section-header">
+      <h2>내 상품 순위 현황</h2>
+      <button class="btn btn-ghost btn-sm" onclick="loadRankings()">↺ 새로고침</button>
+    </div>
+    <div class="table-wrap">
+      <table id="rankingsTable">
+        <thead>
+          <tr>
+            <th>스토어</th><th>상품명</th><th>키워드</th>
+            <th>현재 순위</th><th>이전 순위</th><th>변동</th>
+            <th>수집 시각</th><th>히스토리</th>
+          </tr>
+        </thead>
+        <tbody id="rankingsTbody"><tr><td colspan="8" class="empty-msg">로딩 중…</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- ─── 키워드 TOP10 ─── -->
+  <div id="tab-keywords" class="panel">
+    <div class="section-header">
+      <h2>지정 키워드 TOP 10</h2>
+      <button class="btn btn-ghost btn-sm" onclick="loadKeywordTop10()">↺ 새로고침</button>
+    </div>
+    <div id="keywordTop10Container"><p class="empty-msg">로딩 중…</p></div>
+  </div>
+
+  <!-- ─── 상품 관리 ─── -->
+  <div id="tab-products" class="panel">
+    <div class="section-header"><h2>추적 상품 추가</h2></div>
+    <div class="input-row">
+      <select id="productStoreSelect"><option value="">스토어 선택</option></select>
+      <input id="productUrl" placeholder="상품 URL (스마트스토어 / 네이버 쇼핑)" />
+      <input id="productName" placeholder="상품명 (비워두면 자동 조회)" />
+      <button class="btn btn-primary" onclick="addProduct()">추가</button>
+    </div>
+    <div class="table-wrap">
+      <table id="productsTable">
+        <thead>
+          <tr><th>스토어</th><th>상품명</th><th>키워드</th><th>상태</th><th>관리</th></tr>
+        </thead>
+        <tbody id="productsTbody"><tr><td colspan="5" class="empty-msg">로딩 중…</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- ─── 스토어 관리 ─── -->
+  <div id="tab-stores" class="panel">
+    <div class="section-header"><h2>스토어 등록</h2></div>
+    <div class="input-row">
+      <input id="storeName" placeholder="스토어 이름" />
+      <input id="storeMallName" placeholder="네이버 쇼핑 판매자명 (mallName, 검색결과 매칭용)" />
+      <input id="storeUrl" placeholder="스마트스토어 URL" />
+      <button class="btn btn-primary" onclick="addStore()">추가</button>
+    </div>
+    <div class="table-wrap">
+      <table id="storesTable">
+        <thead><tr><th>ID</th><th>스토어명</th><th>판매자명(mallName)</th><th>URL</th><th>관리</th></tr></thead>
+        <tbody id="storesTbody"><tr><td colspan="5" class="empty-msg">로딩 중…</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- ─── 키워드 관리 ─── -->
+  <div id="tab-watchKeywords" class="panel">
+    <div class="section-header"><h2>지정 키워드 관리 (TOP10 추적)</h2></div>
+    <div class="input-row">
+      <input id="newKeyword" placeholder="키워드 입력" onkeydown="if(event.key==='Enter') addWatchKeyword()" />
+      <button class="btn btn-primary" onclick="addWatchKeyword()">추가</button>
+    </div>
+    <div class="table-wrap">
+      <table id="watchKeywordsTable">
+        <thead><tr><th>키워드</th><th>상태</th><th>관리</th></tr></thead>
+        <tbody id="watchKeywordsTbody"><tr><td colspan="3" class="empty-msg">로딩 중…</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+
+</main>
+
+<!-- 차트 모달 -->
+<div id="chartModal">
+  <div class="modal-box">
+    <button class="modal-close" onclick="closeChart()">✕</button>
+    <h3 id="chartTitle"></h3>
+    <canvas id="rankChart" height="200"></canvas>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<script>
+const API = '/api';
+let chartInstance = null;
+
+/* ── 탭 전환 ── */
+function switchTab(name) {
+  document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  document.getElementById('tab-' + name).classList.add('active');
+  event.currentTarget.classList.add('active');
+
+  const loaders = { rankings: loadRankings, keywords: loadKeywordTop10, products: loadProducts, stores: loadStores, watchKeywords: loadWatchKeywords };
+  if (loaders[name]) loaders[name]();
+}
+
+/* ── 토스트 ── */
+function toast(msg, duration = 2800) {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.classList.add('show');
+  setTimeout(() => el.classList.remove('show'), duration);
+}
+
+/* ── 순위 변동 렌더 ── */
+function rankChange(curr, prev) {
+  if (curr == null) return '<span class="rank-badge rank-none">100위 밖</span>';
+  if (prev == null) return `<span class="rank-badge rank-same">${curr}위</span>`;
+  const diff = prev - curr;
+  if (diff > 0) return `<span class="rank-badge rank-up">▲${diff}</span>`;
+  if (diff < 0) return `<span class="rank-badge rank-down">▼${Math.abs(diff)}</span>`;
+  return `<span class="rank-badge rank-same">—</span>`;
+}
+
+/* ── 날짜 포맷 ── */
+function fmtDate(iso) {
+  if (!iso) return '—';
+  const d = new Date(iso);
+  return `${d.getMonth()+1}/${d.getDate()} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
+}
+
+/* ════════════════════════════════
+   랭킹 현황
+════════════════════════════════ */
+async function loadRankings() {
+  const tbody = document.getElementById('rankingsTbody');
+  try {
+    const res = await fetch(`${API}/rankings/products`);
+    const data = await res.json();
+    if (!data.length) { tbody.innerHTML = '<tr><td colspan="8" class="empty-msg">수집된 랭킹 데이터가 없습니다.</td></tr>'; return; }
+
+    let last = '';
+    data.forEach(r => {
+      if (r.collected_at > last) last = r.collected_at;
+    });
+    document.getElementById('lastCollected').textContent = `마지막 수집: ${fmtDate(last)}`;
+
+    tbody.innerHTML = data.map(r => `
+      <tr>
+        <td>${r.store_name}</td>
+        <td><a href="${r.product_url || '#'}" target="_blank" style="color:#03c75a;text-decoration:none">${r.product_name}</a></td>
+        <td><span class="kw-tag">${r.keyword}</span></td>
+        <td><b>${r.rank != null ? r.rank + '위' : '—'}</b></td>
+        <td>${r.prev_rank != null ? r.prev_rank + '위' : '—'}</td>
+        <td>${rankChange(r.rank, r.prev_rank)}</td>
+        <td>${fmtDate(r.collected_at)}</td>
+        <td><button class="btn btn-ghost btn-sm" onclick="openChart(${r.product_id},'${r.keyword}','${r.product_name}')">📈</button></td>
+      </tr>`).join('');
+  } catch {
+    tbody.innerHTML = '<tr><td colspan="8" class="empty-msg">데이터 로드 실패</td></tr>';
+  }
+}
+
+/* ════════════════════════════════
+   키워드 TOP10
+════════════════════════════════ */
+async function loadKeywordTop10() {
+  const container = document.getElementById('keywordTop10Container');
+  try {
+    const res = await fetch(`${API}/rankings/keywords`);
+    const data = await res.json();
+    if (!data.length) { container.innerHTML = '<p class="empty-msg">수집된 데이터가 없습니다.</p>'; return; }
+
+    // 키워드별 그룹
+    const groups = {};
+    data.forEach(r => {
+      if (!groups[r.keyword]) groups[r.keyword] = { collected_at: r.collected_at, items: [] };
+      groups[r.keyword].items.push(r);
+    });
+
+    container.innerHTML = Object.entries(groups).map(([kw, g]) => `
+      <div style="margin-bottom:28px">
+        <div style="display:flex;align-items:center;gap:12px;margin-bottom:10px">
+          <h3 style="font-size:.95rem;font-weight:700">"${kw}" 검색 TOP10</h3>
+          <span style="font-size:.75rem;color:#aaa">${fmtDate(g.collected_at)} 기준</span>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>#</th><th>상품명</th><th>판매처</th><th>가격</th></tr></thead>
+            <tbody>${g.items.map(i => `
+              <tr>
+                <td><b style="color:#03c75a">${i.rank}</b></td>
+                <td><a href="${i.product_url}" target="_blank" style="color:#222;text-decoration:none">${i.product_name}</a></td>
+                <td>${i.mall_name}</td>
+                <td>${i.price != null ? i.price.toLocaleString() + '원' : '—'}</td>
+              </tr>`).join('')}
+            </tbody>
+          </table>
+        </div>
+      </div>`).join('');
+  } catch {
+    container.innerHTML = '<p class="empty-msg">데이터 로드 실패</p>';
+  }
+}
+
+/* ════════════════════════════════
+   스토어 관리
+════════════════════════════════ */
+async function loadStores() {
+  const tbody = document.getElementById('storesTbody');
+  const select = document.getElementById('productStoreSelect');
+  const res = await fetch(`${API}/stores`);
+  const data = await res.json();
+
+  select.innerHTML = '<option value="">스토어 선택</option>' + data.map(s => `<option value="${s.id}">${s.name}</option>`).join('');
+
+  if (!data.length) { tbody.innerHTML = '<tr><td colspan="5" class="empty-msg">등록된 스토어가 없습니다.</td></tr>'; return; }
+  tbody.innerHTML = data.map(s => `
+    <tr>
+      <td>${s.id}</td>
+      <td>${s.name}</td>
+      <td><code style="font-size:.8rem">${s.mall_name}</code></td>
+      <td><a href="${s.store_url}" target="_blank" style="color:#03c75a;font-size:.8rem">${s.store_url}</a></td>
+      <td><button class="btn btn-danger btn-sm" onclick="deleteStore(${s.id})">삭제</button></td>
+    </tr>`).join('');
+}
+
+async function addStore() {
+  const name = document.getElementById('storeName').value.trim();
+  const mall = document.getElementById('storeMallName').value.trim();
+  const url  = document.getElementById('storeUrl').value.trim();
+  if (!name || !mall || !url) { toast('스토어명, 판매자명, URL을 모두 입력하세요.'); return; }
+
+  const res = await fetch(`${API}/stores`, {
+    method: 'POST', headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({ name, mall_name: mall, store_url: url })
+  });
+  if (res.ok) {
+    toast('스토어가 등록되었습니다.');
+    ['storeName','storeMallName','storeUrl'].forEach(id => document.getElementById(id).value = '');
+    loadStores();
+  } else toast('등록 실패');
+}
+
+async function deleteStore(id) {
+  if (!confirm('스토어를 삭제하면 연결된 상품도 함께 삭제됩니다. 계속하시겠습니까?')) return;
+  await fetch(`${API}/stores/${id}`, { method: 'DELETE' });
+  toast('삭제되었습니다.'); loadStores();
+}
+
+/* ════════════════════════════════
+   상품 관리
+════════════════════════════════ */
+async function loadProducts() {
+  await loadStores(); // 스토어 셀렉트 동기화
+  const tbody = document.getElementById('productsTbody');
+  const res = await fetch(`${API}/products`);
+  const data = await res.json();
+
+  if (!data.length) { tbody.innerHTML = '<tr><td colspan="5" class="empty-msg">추적 중인 상품이 없습니다.</td></tr>'; return; }
+  tbody.innerHTML = data.map(p => `
+    <tr>
+      <td>${p.store_name}</td>
+      <td><a href="${p.product_url}" target="_blank" style="color:#222;text-decoration:none">${p.product_name || p.naver_product_id}</a></td>
+      <td><div class="kw-tags">${p.keywords.slice(0,6).map(k => `<span class="kw-tag">${k}</span>`).join('')}${p.keywords.length > 6 ? `<span class="kw-tag">+${p.keywords.length - 6}</span>` : ''}</div></td>
+      <td><span class="badge ${p.is_active ? 'badge-on' : 'badge-off'}">${p.is_active ? '추적중' : '중지'}</span></td>
+      <td style="display:flex;gap:6px;flex-wrap:wrap">
+        <button class="btn btn-ghost btn-sm" onclick="toggleProduct(${p.id})">${p.is_active ? '중지' : '재개'}</button>
+        <button class="btn btn-danger btn-sm" onclick="deleteProduct(${p.id})">삭제</button>
+      </td>
+    </tr>`).join('');
+}
+
+async function addProduct() {
+  const storeId = document.getElementById('productStoreSelect').value;
+  const url = document.getElementById('productUrl').value.trim();
+  const name = document.getElementById('productName').value.trim();
+  if (!storeId || !url) { toast('스토어와 상품 URL을 입력하세요.'); return; }
+
+  toast('상품 정보를 가져오는 중…');
+  const res = await fetch(`${API}/products`, {
+    method: 'POST', headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({ store_id: parseInt(storeId), product_url: url, product_name: name })
+  });
+  if (res.ok) {
+    toast('상품이 추가되었습니다.');
+    document.getElementById('productUrl').value = '';
+    document.getElementById('productName').value = '';
+    loadProducts();
+  } else {
+    const err = await res.json();
+    toast('추가 실패: ' + (err.detail || '알 수 없는 오류'));
+  }
+}
+
+async function toggleProduct(id) {
+  await fetch(`${API}/products/${id}/toggle`, { method: 'PATCH' });
+  loadProducts();
+}
+
+async function deleteProduct(id) {
+  if (!confirm('이 상품 추적을 삭제할까요?')) return;
+  await fetch(`${API}/products/${id}`, { method: 'DELETE' });
+  toast('삭제되었습니다.'); loadProducts();
+}
+
+/* ════════════════════════════════
+   키워드 관리
+════════════════════════════════ */
+async function loadWatchKeywords() {
+  const tbody = document.getElementById('watchKeywordsTbody');
+  const res = await fetch(`${API}/keywords`);
+  const data = await res.json();
+
+  if (!data.length) { tbody.innerHTML = '<tr><td colspan="3" class="empty-msg">등록된 키워드가 없습니다.</td></tr>'; return; }
+  tbody.innerHTML = data.map(k => `
+    <tr>
+      <td><b>${k.keyword}</b></td>
+      <td><span class="badge ${k.is_active ? 'badge-on' : 'badge-off'}">${k.is_active ? '추적중' : '중지'}</span></td>
+      <td style="display:flex;gap:6px">
+        <button class="btn btn-ghost btn-sm" onclick="toggleKeyword(${k.id})">${k.is_active ? '중지' : '재개'}</button>
+        <button class="btn btn-danger btn-sm" onclick="deleteKeyword(${k.id})">삭제</button>
+      </td>
+    </tr>`).join('');
+}
+
+async function addWatchKeyword() {
+  const kw = document.getElementById('newKeyword').value.trim();
+  if (!kw) return;
+  const res = await fetch(`${API}/keywords`, {
+    method: 'POST', headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({ keyword: kw })
+  });
+  if (res.ok) {
+    toast(`"${kw}" 키워드가 추가되었습니다.`);
+    document.getElementById('newKeyword').value = '';
+    loadWatchKeywords();
+  } else toast('추가 실패');
+}
+
+async function toggleKeyword(id) {
+  await fetch(`${API}/keywords/${id}/toggle`, { method: 'PATCH' });
+  loadWatchKeywords();
+}
+
+async function deleteKeyword(id) {
+  if (!confirm('키워드를 삭제할까요?')) return;
+  await fetch(`${API}/keywords/${id}`, { method: 'DELETE' });
+  toast('삭제되었습니다.'); loadWatchKeywords();
+}
+
+/* ════════════════════════════════
+   수동 수집
+════════════════════════════════ */
+async function manualCollect() {
+  const btn = document.getElementById('collectBtn');
+  btn.disabled = true; btn.textContent = '수집 중…';
+  try {
+    const res = await fetch(`${API}/rankings/collect`, { method: 'POST' });
+    const data = await res.json();
+    toast(`수집 완료! 상품 ${data.products}건 / 키워드 ${data.keywords}건 (알림 ${data.alerts_sent}건)`);
+    loadRankings();
+  } catch { toast('수집 실패'); }
+  finally { btn.disabled = false; btn.textContent = '지금 수집'; }
+}
+
+/* ════════════════════════════════
+   차트 모달
+════════════════════════════════ */
+async function openChart(productId, keyword, productName) {
+  const modal = document.getElementById('chartModal');
+  document.getElementById('chartTitle').textContent = `${productName} / "${keyword}" 순위 추이`;
+  modal.classList.add('open');
+
+  const res = await fetch(`${API}/rankings/products/${productId}/history?keyword=${encodeURIComponent(keyword)}&limit=30`);
+  const data = await res.json();
+
+  const labels = data.map(d => fmtDate(d.collected_at));
+  const ranks  = data.map(d => d.rank);
+
+  if (chartInstance) chartInstance.destroy();
+  chartInstance = new Chart(document.getElementById('rankChart'), {
+    type: 'line',
+    data: {
+      labels,
+      datasets: [{
+        label: '순위',
+        data: ranks,
+        borderColor: '#03c75a',
+        backgroundColor: 'rgba(3,199,90,.1)',
+        pointBackgroundColor: '#03c75a',
+        tension: 0.3,
+        fill: true,
+      }]
+    },
+    options: {
+      responsive: true,
+      scales: {
+        y: { reverse: true, min: 1, title: { display: true, text: '순위 (낮을수록 좋음)' } }
+      },
+      plugins: { legend: { display: false } }
+    }
+  });
+}
+
+function closeChart() {
+  document.getElementById('chartModal').classList.remove('open');
+  if (chartInstance) { chartInstance.destroy(); chartInstance = null; }
+}
+
+/* ── 초기 로드 ── */
+loadRankings();
+</script>
+</body>
+</html>
