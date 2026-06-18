@@ -156,13 +156,53 @@
     .badge-off { background: #f5f5f5; color: #aaa; }
 
     /* ── 키워드 태그 ── */
-    .kw-tags { display: flex; flex-wrap: wrap; gap: 4px; }
+    .kw-tags { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
     .kw-tag {
       background: #e8f5e9;
       color: #2e7d32;
       border-radius: 10px;
       padding: 2px 9px;
       font-size: .75rem;
+    }
+    .kw-tag-edit {
+      display: inline-flex;
+      align-items: center;
+      gap: 3px;
+      background: #e8f5e9;
+      color: #2e7d32;
+      border-radius: 10px;
+      padding: 2px 6px 2px 8px;
+      font-size: .75rem;
+    }
+    .kw-chart-btn {
+      cursor: pointer; opacity: .6; font-size: .7rem;
+      padding: 0 1px;
+      line-height: 1;
+    }
+    .kw-chart-btn:hover { opacity: 1; }
+    .kw-remove {
+      cursor: pointer; color: #999; font-size: .85rem;
+      line-height: 1; padding: 0 1px;
+    }
+    .kw-remove:hover { color: #ff4d4f; }
+    .kw-add-btn {
+      cursor: pointer;
+      background: #f0faf4;
+      color: #03c75a;
+      border: 1px dashed #a5d6b7;
+      border-radius: 10px;
+      padding: 2px 9px;
+      font-size: .75rem;
+      white-space: nowrap;
+    }
+    .kw-add-btn:hover { background: #e0f5ea; }
+    .kw-inline-input {
+      display: inline-flex; align-items: center; gap: 4px;
+    }
+    .kw-inline-input input {
+      width: 90px; padding: 2px 6px;
+      border: 1.5px solid #03c75a; border-radius: 8px;
+      font-size: .75rem; outline: none;
     }
 
     /* ── 차트 모달 ── */
@@ -329,6 +369,7 @@
 <script>
 const API = '/api';
 let chartInstance = null;
+let _productKeywords = {};
 
 /* ── 탭 전환 ── */
 function switchTab(name) {
@@ -488,24 +529,86 @@ async function deleteStore(id) {
 /* ════════════════════════════════
    상품 관리
 ════════════════════════════════ */
+function renderKwTags(p) {
+  const tags = p.keywords.map(k => `
+    <span class="kw-tag-edit">
+      <span class="kw-chart-btn" onclick="openChart(${p.id},'${escQ(k)}','${escQ(p.product_name)}')" title="30일 순위 추이">📈</span>
+      ${escH(k)}
+      <span class="kw-remove" onclick="removeProductKeyword(${p.id},'${escQ(k)}')" title="삭제">×</span>
+    </span>`).join('');
+  const addBtn = `<span class="kw-add-btn" id="kwbtn-${p.id}" onclick="showKwInput(${p.id})">+ 추가</span>`;
+  const inputArea = `
+    <span class="kw-inline-input" id="kwinput-${p.id}" style="display:none">
+      <input id="kwinputval-${p.id}" placeholder="키워드"
+             onkeydown="if(event.key==='Enter')addProductKeyword(${p.id});else if(event.key==='Escape')hideKwInput(${p.id})" />
+      <button class="btn btn-primary btn-sm" onclick="addProductKeyword(${p.id})">확인</button>
+      <button class="btn btn-ghost btn-sm" onclick="hideKwInput(${p.id})">취소</button>
+    </span>`;
+  return `<div class="kw-tags" id="kwtags-${p.id}">${tags}${addBtn}${inputArea}</div>`;
+}
+
+function escH(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+function escQ(s) { return String(s).replace(/\\/g,'\\\\').replace(/'/g,"\\'"); }
+
 async function loadProducts() {
-  await loadStores(); // 스토어 셀렉트 동기화
+  await loadStores();
   const tbody = document.getElementById('productsTbody');
   const res = await fetch(`${API}/products`);
   const data = await res.json();
 
+  _productKeywords = {};
+  data.forEach(p => { _productKeywords[p.id] = [...p.keywords]; });
+
   if (!data.length) { tbody.innerHTML = '<tr><td colspan="5" class="empty-msg">추적 중인 상품이 없습니다.</td></tr>'; return; }
   tbody.innerHTML = data.map(p => `
     <tr>
-      <td>${p.store_name}</td>
-      <td><a href="${p.product_url}" target="_blank" style="color:#222;text-decoration:none">${p.product_name || p.naver_product_id}</a></td>
-      <td><div class="kw-tags">${p.keywords.slice(0,6).map(k => `<span class="kw-tag">${k}</span>`).join('')}${p.keywords.length > 6 ? `<span class="kw-tag">+${p.keywords.length - 6}</span>` : ''}</div></td>
+      <td>${escH(p.store_name)}</td>
+      <td><a href="${p.product_url}" target="_blank" style="color:#222;text-decoration:none">${escH(p.product_name || p.naver_product_id)}</a></td>
+      <td>${renderKwTags(p)}</td>
       <td><span class="badge ${p.is_active ? 'badge-on' : 'badge-off'}">${p.is_active ? '추적중' : '중지'}</span></td>
       <td style="display:flex;gap:6px;flex-wrap:wrap">
         <button class="btn btn-ghost btn-sm" onclick="toggleProduct(${p.id})">${p.is_active ? '중지' : '재개'}</button>
         <button class="btn btn-danger btn-sm" onclick="deleteProduct(${p.id})">삭제</button>
       </td>
     </tr>`).join('');
+}
+
+function showKwInput(productId) {
+  document.getElementById(`kwbtn-${productId}`).style.display = 'none';
+  document.getElementById(`kwinput-${productId}`).style.display = 'inline-flex';
+  document.getElementById(`kwinputval-${productId}`).focus();
+}
+function hideKwInput(productId) {
+  document.getElementById(`kwinput-${productId}`).style.display = 'none';
+  document.getElementById(`kwbtn-${productId}`).style.display = '';
+  document.getElementById(`kwinputval-${productId}`).value = '';
+}
+
+async function addProductKeyword(productId) {
+  const input = document.getElementById(`kwinputval-${productId}`);
+  const kw = input.value.trim();
+  if (!kw) return;
+  const keywords = [...(_productKeywords[productId] || [])];
+  if (!keywords.includes(kw)) keywords.push(kw);
+  await updateProductKeywords(productId, keywords);
+}
+
+async function removeProductKeyword(productId, keyword) {
+  const keywords = (_productKeywords[productId] || []).filter(k => k !== keyword);
+  await updateProductKeywords(productId, keywords);
+}
+
+async function updateProductKeywords(productId, keywords) {
+  const res = await fetch(`${API}/products/${productId}/keywords`, {
+    method: 'PUT',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify(keywords)
+  });
+  if (res.ok) {
+    _productKeywords[productId] = keywords;
+    toast('키워드가 업데이트되었습니다.');
+    loadProducts();
+  } else toast('키워드 업데이트 실패');
 }
 
 async function addProduct() {
