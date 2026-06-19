@@ -1,3 +1,5 @@
+import asyncio
+import logging
 import os
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -19,9 +21,19 @@ from backend.scheduler import start_scheduler, stop_scheduler
 from backend.routers import stores, products, keywords, rankings
 
 
+async def _init_db_bg() -> None:
+    """init_db()를 스레드풀에서 실행 — 이벤트 루프 블로킹 방지."""
+    try:
+        loop = asyncio.get_running_loop()
+        await asyncio.wait_for(loop.run_in_executor(None, init_db), timeout=60)
+        logging.info("DB initialized")
+    except Exception as exc:
+        logging.error("DB init failed (non-fatal): %s", exc)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    init_db()
+    asyncio.create_task(_init_db_bg())
     start_scheduler()
     yield
     stop_scheduler()
