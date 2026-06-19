@@ -1,12 +1,13 @@
 import json
 import os
+from typing import Optional
 import httpx
 
 KAKAO_MEMO_URL = "https://kapi.kakao.com/v2/api/talk/memo/default/send"
 KAKAO_TOKEN_URL = "https://kauth.kakao.com/oauth/token"
 
 
-def _refresh_access_token(refresh_token: str) -> str | None:
+def _refresh_access_token(refresh_token: str) -> Optional[str]:
     """리프레시 토큰으로 새 액세스 토큰을 발급한다."""
     rest_api_key = os.environ.get("KAKAO_REST_API_KEY", "")
     if not rest_api_key or not refresh_token:
@@ -27,7 +28,7 @@ def _refresh_access_token(refresh_token: str) -> str | None:
         return None
 
 
-def _build_text_template(text: str, web_url: str | None = None) -> str:
+def _build_text_template(text: str, web_url: Optional[str] = None) -> str:
     web_url = web_url or os.environ.get("APP_URL", "http://localhost:8000")
     return json.dumps(
         {

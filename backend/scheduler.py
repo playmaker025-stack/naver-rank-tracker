@@ -1,3 +1,4 @@
+from typing import Dict, Optional, Tuple
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 
@@ -14,7 +15,7 @@ def _run_collection():
     db = SessionLocal()
     try:
         products = db.query(TrackedProduct).filter(TrackedProduct.is_active == True).all()  # noqa: E712
-        prev_ranks: dict[tuple, int | None] = {}
+        prev_ranks: Dict[Tuple, Optional[int]] = {}
         for p in products:
             for pk in p.keywords:
                 latest = (
