@@ -33,9 +33,4 @@ def get_db():
 
 def init_db():
     from backend import models  # noqa: F401
-    try:
-        Base.metadata.create_all(bind=engine)
-        print(f"[DB] Connected: {DATABASE_URL[:30]}...", flush=True)
-    except Exception as e:
-        print(f"[DB ERROR] {e}", flush=True)
-        raise
+    Base.metadata.create_all(bind=engine)
