@@ -10,7 +10,11 @@ if _raw_url.startswith("postgres://"):
 
 DATABASE_URL = _raw_url
 
-_connect_args = {"check_same_thread": False} if DATABASE_URL.startswith("sqlite") else {}
+if DATABASE_URL.startswith("sqlite"):
+    _connect_args = {"check_same_thread": False}
+else:
+    _connect_args = {"connect_timeout": 10}
+
 engine = create_engine(DATABASE_URL, connect_args=_connect_args)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
@@ -29,4 +33,9 @@ def get_db():
 
 def init_db():
     from backend import models  # noqa: F401
-    Base.metadata.create_all(bind=engine)
+    try:
+        Base.metadata.create_all(bind=engine)
+        print(f"[DB] Connected: {DATABASE_URL[:30]}...", flush=True)
+    except Exception as e:
+        print(f"[DB ERROR] {e}", flush=True)
+        raise
