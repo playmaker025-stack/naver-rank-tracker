@@ -84,6 +84,25 @@ def _search_keyword(keyword: str) -> list[dict]:
         return []
 
 
+def search_keyword_with_error(keyword: str) -> dict:
+    """디버깅용: 에러 메시지까지 포함해서 반환한다."""
+    try:
+        with httpx.Client(timeout=10) as client:
+            resp = client.get(
+                NAVER_API_URL,
+                headers=_naver_headers(),
+                params={"query": keyword, "display": SEARCH_DISPLAY, "sort": "sim"},
+            )
+            return {
+                "status_code": resp.status_code,
+                "ok": resp.status_code == 200,
+                "items": resp.json().get("items", []) if resp.status_code == 200 else [],
+                "raw": resp.json() if resp.status_code != 200 else None,
+            }
+    except Exception as e:
+        return {"status_code": None, "ok": False, "items": [], "error": str(e)}
+
+
 def _item_matches_product(item: dict, product: "TrackedProduct") -> bool:
     """API 결과 한 건이 추적 상품과 일치하는지 판별한다.
 
