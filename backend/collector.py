@@ -84,6 +84,31 @@ def _search_keyword(keyword: str) -> list[dict]:
         return []
 
 
+def _item_matches_product(item: dict, product: "TrackedProduct") -> bool:
+    """API 결과 한 건이 추적 상품과 일치하는지 판별한다.
+
+    Naver Shopping API의 productId는 카탈로그 ID라서 SmartStore URL의
+    product ID와 다를 수 있다. link URL 포함 여부와 mallName으로 보완한다.
+    """
+    pid = product.naver_product_id
+
+    # 1) productId 직접 일치
+    if item.get("productId") == pid:
+        return True
+
+    # 2) link URL 안에 상품 ID 포함 (SmartStore URL 형태 매칭)
+    link = item.get("link", "")
+    if pid and len(pid) >= 8 and pid in link:
+        return True
+
+    # 3) mallName 일치 + link 안에 ID 포함
+    mall_name = product.store.mall_name if product.store else ""
+    if mall_name and item.get("mallName") == mall_name and pid in link:
+        return True
+
+    return False
+
+
 def collect_product_rankings(db: Session, collected_at: datetime | None = None) -> int:
     """활성화된 모든 추적 상품의 키워드별 순위를 수집한다."""
     if collected_at is None:
@@ -101,7 +126,7 @@ def collect_product_rankings(db: Session, collected_at: datetime | None = None) 
             items = _search_keyword(pk.keyword)
             rank = None
             for i, item in enumerate(items, start=1):
-                if item.get("productId") == product.naver_product_id:
+                if _item_matches_product(item, product):
                     rank = i
                     break
 

@@ -1,10 +1,11 @@
+import re
 from datetime import datetime, timezone
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 from sqlalchemy import desc
 from sqlalchemy.orm import Session
 
-from backend.collector import collect_all
+from backend.collector import collect_all, _search_keyword, _item_matches_product
 from backend.database import get_db
 from backend.kakao import send_rank_alert, send_collection_summary
 from backend.models import KeywordTop10History, ProductRankHistory, TrackedProduct, WatchKeyword
@@ -141,6 +142,32 @@ def get_keyword_top10(db: Session = Depends(get_db)):
                 )
             )
     return result
+
+
+@router.get("/debug/search")
+def debug_search(keyword: str, db: Session = Depends(get_db)):
+    """키워드 검색 결과 원본 확인 (매칭 디버깅용)."""
+    items = _search_keyword(keyword)
+    products = db.query(TrackedProduct).filter(TrackedProduct.is_active == True).all()  # noqa: E712
+
+    result_items = []
+    for i, item in enumerate(items[:50], start=1):
+        matched_product = None
+        for p in products:
+            if _item_matches_product(item, p):
+                matched_product = p.product_name
+                break
+        result_items.append({
+            "rank": i,
+            "productId": item.get("productId"),
+            "title": re.sub(r"<[^>]+>", "", item.get("title", "")),
+            "mallName": item.get("mallName"),
+            "link": item.get("link", "")[:80],
+            "matched": matched_product,
+        })
+
+    tracked = [{"id": p.id, "name": p.product_name, "naver_product_id": p.naver_product_id} for p in products]
+    return {"keyword": keyword, "total_results": len(items), "tracked_products": tracked, "items": result_items}
 
 
 @router.post("/collect")
