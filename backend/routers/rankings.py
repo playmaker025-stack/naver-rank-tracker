@@ -144,6 +144,20 @@ def get_keyword_top10(db: Session = Depends(get_db)):
     return result
 
 
+@router.get("/debug/env")
+def debug_env():
+    """환경변수 주입 확인용 (키 이름만 반환)."""
+    import os
+    keys = sorted(os.environ.keys())
+    naver_id = os.environ.get("NAVER_CLIENT_ID", "NOT_SET")
+    naver_secret = os.environ.get("NAVER_CLIENT_SECRET", "NOT_SET")
+    return {
+        "NAVER_CLIENT_ID": naver_id[:6] + "..." if naver_id != "NOT_SET" else "NOT_SET",
+        "NAVER_CLIENT_SECRET": naver_secret[:4] + "..." if naver_secret != "NOT_SET" else "NOT_SET",
+        "all_env_keys": [k for k in keys if not k.startswith("RAILWAY_") and k not in ("PATH", "HOME", "USER")],
+    }
+
+
 @router.get("/debug/search")
 def debug_search(keyword: str, db: Session = Depends(get_db)):
     """키워드 검색 결과 원본 확인 (에러 포함)."""
