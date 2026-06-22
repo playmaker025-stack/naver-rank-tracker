@@ -265,10 +265,10 @@
 
 <div class="tabs">
   <button class="tab active" onclick="switchTab('rankings')">📊 랭킹 현황</button>
-  <button class="tab" onclick="switchTab('keywords')">🔍 키워드 TOP10</button>
+  <button class="tab" onclick="switchTab('keywords')">🔍 TOP10 검색</button>
   <button class="tab" onclick="switchTab('products')">📦 상품 관리</button>
   <button class="tab" onclick="switchTab('stores')">🏪 스토어 관리</button>
-  <button class="tab" onclick="switchTab('watchKeywords')">📌 키워드 관리</button>
+  <button class="tab" onclick="switchTab('watchKeywords')">🔑 키워드 관리</button>
 </div>
 
 <main>
@@ -296,8 +296,19 @@
   <!-- ─── 키워드 TOP10 ─── -->
   <div id="tab-keywords" class="panel">
     <div class="section-header">
-      <h2>지정 키워드 TOP 10</h2>
+      <h2>TOP10 검색결과 모니터링</h2>
       <button class="btn btn-ghost btn-sm" onclick="loadKeywordTop10()">↺ 새로고침</button>
+    </div>
+    <!-- TOP10 추적 키워드 설정 -->
+    <div style="background:#f7f8fa;border-radius:10px;padding:14px 16px;margin-bottom:20px">
+      <p style="font-size:.8rem;font-weight:700;color:#555;margin-bottom:8px">추적 키워드 설정 <span style="font-weight:400;color:#aaa">— 아래 키워드를 네이버에서 검색해 TOP10 결과를 수집합니다</span></p>
+      <div style="display:flex;gap:8px;margin-bottom:10px;flex-wrap:wrap">
+        <input id="newKeyword" placeholder="키워드 입력 후 Enter"
+               style="flex:1;min-width:160px;padding:7px 11px;border:1.5px solid #d8dce4;border-radius:8px;font-size:.85rem;outline:none"
+               onkeydown="if(event.key==='Enter') addWatchKeyword()" />
+        <button class="btn btn-primary btn-sm" onclick="addWatchKeyword()">추가</button>
+      </div>
+      <div id="watchKeywordChips" style="display:flex;flex-wrap:wrap;gap:6px"><span style="font-size:.8rem;color:#bbb">로딩 중…</span></div>
     </div>
     <div id="keywordTop10Container"><p class="empty-msg">로딩 중…</p></div>
   </div>
@@ -338,19 +349,14 @@
     </div>
   </div>
 
-  <!-- ─── 키워드 관리 ─── -->
+  <!-- ─── 상품별 키워드 관리 ─── -->
   <div id="tab-watchKeywords" class="panel">
-    <div class="section-header"><h2>지정 키워드 관리 (TOP10 추적)</h2></div>
-    <div class="input-row">
-      <input id="newKeyword" placeholder="키워드 입력" onkeydown="if(event.key==='Enter') addWatchKeyword()" />
-      <button class="btn btn-primary" onclick="addWatchKeyword()">추가</button>
+    <div class="section-header">
+      <h2>상품별 키워드 관리</h2>
+      <button class="btn btn-ghost btn-sm" onclick="loadProductKeywords()">↺ 새로고침</button>
     </div>
-    <div class="table-wrap">
-      <table id="watchKeywordsTable">
-        <thead><tr><th>키워드</th><th>상태</th><th>관리</th></tr></thead>
-        <tbody id="watchKeywordsTbody"><tr><td colspan="3" class="empty-msg">로딩 중…</td></tr></tbody>
-      </table>
-    </div>
+    <p style="color:#888;font-size:.82rem;margin-bottom:18px">각 상품마다 순위를 추적할 키워드를 등록하세요. 등록된 키워드 수만큼 매 수집마다 순위가 기록됩니다.</p>
+    <div id="productKeywordsContainer"><p class="empty-msg">로딩 중…</p></div>
   </div>
 
 </main>
@@ -378,7 +384,7 @@ function switchTab(name) {
   document.getElementById('tab-' + name).classList.add('active');
   event.currentTarget.classList.add('active');
 
-  const loaders = { rankings: loadRankings, keywords: loadKeywordTop10, products: loadProducts, stores: loadStores, watchKeywords: loadWatchKeywords };
+  const loaders = { rankings: loadRankings, keywords: loadKeywordsTab, products: loadProducts, stores: loadStores, watchKeywords: loadProductKeywords };
   if (loaders[name]) loaders[name]();
 }
 
@@ -440,16 +446,41 @@ async function loadRankings() {
 }
 
 /* ════════════════════════════════
-   키워드 TOP10
+   TOP10 검색 탭 (watch keywords + 결과)
 ════════════════════════════════ */
+async function loadKeywordsTab() {
+  await loadWatchKeywordChips();
+  await loadKeywordTop10();
+}
+
+async function loadWatchKeywordChips() {
+  const chips = document.getElementById('watchKeywordChips');
+  if (!chips) return;
+  try {
+    const res = await fetch(`${API}/keywords`);
+    const data = await res.json();
+    if (!data.length) {
+      chips.innerHTML = '<span style="font-size:.8rem;color:#bbb">등록된 키워드가 없습니다</span>';
+      return;
+    }
+    chips.innerHTML = data.map(k => `
+      <span style="display:inline-flex;align-items:center;gap:4px;background:${k.is_active ? '#e8f5e9' : '#f5f5f5'};color:${k.is_active ? '#2e7d32' : '#aaa'};border-radius:10px;padding:3px 8px 3px 10px;font-size:.78rem">
+        ${escH(k.keyword)}
+        <span onclick="toggleKeyword(${k.id})" title="${k.is_active ? '중지' : '재개'}" style="cursor:pointer;margin:0 2px;opacity:.7;font-size:.7rem">${k.is_active ? '⏸' : '▶'}</span>
+        <span onclick="deleteKeyword(${k.id})" title="삭제" style="cursor:pointer;color:#999;font-size:.85rem;line-height:1">×</span>
+      </span>`).join('');
+  } catch {
+    chips.innerHTML = '<span style="font-size:.8rem;color:#bbb">로드 실패</span>';
+  }
+}
+
 async function loadKeywordTop10() {
   const container = document.getElementById('keywordTop10Container');
   try {
     const res = await fetch(`${API}/rankings/keywords`);
     const data = await res.json();
-    if (!data.length) { container.innerHTML = '<p class="empty-msg">수집된 데이터가 없습니다.</p>'; return; }
+    if (!data.length) { container.innerHTML = '<p class="empty-msg">수집된 데이터가 없습니다. "지금 수집" 버튼을 눌러주세요.</p>'; return; }
 
-    // 키워드별 그룹
     const groups = {};
     data.forEach(r => {
       if (!groups[r.keyword]) groups[r.keyword] = { collected_at: r.collected_at, items: [] };
@@ -459,7 +490,7 @@ async function loadKeywordTop10() {
     container.innerHTML = Object.entries(groups).map(([kw, g]) => `
       <div style="margin-bottom:28px">
         <div style="display:flex;align-items:center;gap:12px;margin-bottom:10px">
-          <h3 style="font-size:.95rem;font-weight:700">"${kw}" 검색 TOP10</h3>
+          <h3 style="font-size:.95rem;font-weight:700">"${escH(kw)}" 검색 TOP10</h3>
           <span style="font-size:.75rem;color:#aaa">${fmtDate(g.collected_at)} 기준</span>
         </div>
         <div class="table-wrap">
@@ -468,8 +499,8 @@ async function loadKeywordTop10() {
             <tbody>${g.items.map(i => `
               <tr>
                 <td><b style="color:#03c75a">${i.rank}</b></td>
-                <td><a href="${i.product_url}" target="_blank" style="color:#222;text-decoration:none">${i.product_name}</a></td>
-                <td>${i.mall_name}</td>
+                <td><a href="${i.product_url}" target="_blank" style="color:#222;text-decoration:none">${escH(i.product_name)}</a></td>
+                <td>${escH(i.mall_name)}</td>
                 <td>${i.price != null ? i.price.toLocaleString() + '원' : '—'}</td>
               </tr>`).join('')}
             </tbody>
@@ -607,7 +638,10 @@ async function updateProductKeywords(productId, keywords) {
   if (res.ok) {
     _productKeywords[productId] = keywords;
     toast('키워드가 업데이트되었습니다.');
-    loadProducts();
+    // 현재 활성 탭에 맞게 새로고침
+    const activePanel = document.querySelector('.panel.active');
+    if (activePanel?.id === 'tab-watchKeywords') loadProductKeywords();
+    else loadProducts();
   } else toast('키워드 업데이트 실패');
 }
 
@@ -645,25 +679,53 @@ async function deleteProduct(id) {
 }
 
 /* ════════════════════════════════
-   키워드 관리
+   상품별 키워드 관리
 ════════════════════════════════ */
-async function loadWatchKeywords() {
-  const tbody = document.getElementById('watchKeywordsTbody');
-  const res = await fetch(`${API}/keywords`);
-  const data = await res.json();
+async function loadProductKeywords() {
+  const container = document.getElementById('productKeywordsContainer');
+  try {
+    const res = await fetch(`${API}/products`);
+    const data = await res.json();
 
-  if (!data.length) { tbody.innerHTML = '<tr><td colspan="3" class="empty-msg">등록된 키워드가 없습니다.</td></tr>'; return; }
-  tbody.innerHTML = data.map(k => `
-    <tr>
-      <td><b>${k.keyword}</b></td>
-      <td><span class="badge ${k.is_active ? 'badge-on' : 'badge-off'}">${k.is_active ? '추적중' : '중지'}</span></td>
-      <td style="display:flex;gap:6px">
-        <button class="btn btn-ghost btn-sm" onclick="toggleKeyword(${k.id})">${k.is_active ? '중지' : '재개'}</button>
-        <button class="btn btn-danger btn-sm" onclick="deleteKeyword(${k.id})">삭제</button>
-      </td>
-    </tr>`).join('');
+    _productKeywords = {};
+    data.forEach(p => { _productKeywords[p.id] = [...p.keywords]; });
+
+    if (!data.length) {
+      container.innerHTML = '<p class="empty-msg">등록된 상품이 없습니다. 먼저 상품을 추가해주세요.</p>';
+      return;
+    }
+
+    container.innerHTML = data.map(p => `
+      <div style="background:#fff;border:1.5px solid #eee;border-radius:12px;padding:16px 18px;margin-bottom:12px">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
+          <span style="font-size:.78rem;background:#e6f9f0;color:#03a84e;border-radius:6px;padding:2px 8px;font-weight:600">${escH(p.store_name)}</span>
+          <a href="${p.product_url}" target="_blank" style="font-size:.9rem;font-weight:700;color:#1a1a2e;text-decoration:none">${escH(p.product_name || p.naver_product_id)}</a>
+          <span style="margin-left:auto;font-size:.75rem;color:#bbb">${p.keywords.length}개 키워드</span>
+        </div>
+        <div class="kw-tags" id="kwtags-${p.id}">
+          ${p.keywords.map(k => `
+            <span class="kw-tag-edit">
+              <span class="kw-chart-btn" onclick="openChart(${p.id},'${escQ(k)}','${escQ(p.product_name)}')" title="순위 추이">📈</span>
+              ${escH(k)}
+              <span class="kw-remove" onclick="removeProductKeyword(${p.id},'${escQ(k)}')" title="삭제">×</span>
+            </span>`).join('')}
+          <span class="kw-add-btn" id="kwbtn-${p.id}" onclick="showKwInput(${p.id})">+ 키워드 추가</span>
+          <span class="kw-inline-input" id="kwinput-${p.id}" style="display:none">
+            <input id="kwinputval-${p.id}" placeholder="키워드"
+                   onkeydown="if(event.key==='Enter')addProductKeyword(${p.id});else if(event.key==='Escape')hideKwInput(${p.id})" />
+            <button class="btn btn-primary btn-sm" onclick="addProductKeyword(${p.id})">확인</button>
+            <button class="btn btn-ghost btn-sm" onclick="hideKwInput(${p.id})">취소</button>
+          </span>
+        </div>
+      </div>`).join('');
+  } catch {
+    container.innerHTML = '<p class="empty-msg">데이터 로드 실패</p>';
+  }
 }
 
+/* ════════════════════════════════
+   TOP10 watch 키워드 관리
+════════════════════════════════ */
 async function addWatchKeyword() {
   const kw = document.getElementById('newKeyword').value.trim();
   if (!kw) return;
@@ -672,21 +734,22 @@ async function addWatchKeyword() {
     body: JSON.stringify({ keyword: kw })
   });
   if (res.ok) {
-    toast(`"${kw}" 키워드가 추가되었습니다.`);
+    toast(`"${kw}" TOP10 추적 키워드가 추가되었습니다.`);
     document.getElementById('newKeyword').value = '';
-    loadWatchKeywords();
+    loadWatchKeywordChips();
   } else toast('추가 실패');
 }
 
 async function toggleKeyword(id) {
   await fetch(`${API}/keywords/${id}/toggle`, { method: 'PATCH' });
-  loadWatchKeywords();
+  loadWatchKeywordChips();
 }
 
 async function deleteKeyword(id) {
   if (!confirm('키워드를 삭제할까요?')) return;
   await fetch(`${API}/keywords/${id}`, { method: 'DELETE' });
-  toast('삭제되었습니다.'); loadWatchKeywords();
+  toast('삭제되었습니다.');
+  loadWatchKeywordChips();
 }
 
 /* ════════════════════════════════
@@ -750,6 +813,7 @@ function closeChart() {
 
 /* ── 초기 로드 ── */
 loadRankings();
+loadWatchKeywordChips();
 </script>
 </body>
 </html>
