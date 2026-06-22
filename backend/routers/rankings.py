@@ -66,6 +66,31 @@ def get_product_rankings(db: Session = Depends(get_db)):
     return result
 
 
+@router.get("/history/all", response_model=list[dict])
+def get_all_rankings_history(limit: int = 60, db: Session = Depends(get_db)):
+    """모든 추적 상품×키워드 조합의 히스토리를 한번에 반환."""
+    products = db.query(TrackedProduct).filter(TrackedProduct.is_active == True).all()  # noqa: E712
+    result = []
+    for product in products:
+        for pk in product.keywords:
+            rows = (
+                db.query(ProductRankHistory)
+                .filter(ProductRankHistory.product_id == product.id, ProductRankHistory.keyword == pk.keyword)
+                .order_by(desc(ProductRankHistory.collected_at))
+                .limit(limit)
+                .all()
+            )
+            if rows:
+                result.append({
+                    "product_id": product.id,
+                    "product_name": product.product_name,
+                    "store_name": product.store.name,
+                    "keyword": pk.keyword,
+                    "history": [{"rank": r.rank, "collected_at": r.collected_at.isoformat()} for r in reversed(rows)],
+                })
+    return result
+
+
 @router.get("/products/{product_id}/history", response_model=list[dict])
 def get_product_rank_history(product_id: int, keyword: str, limit: int = 30, db: Session = Depends(get_db)):
     rows = (
