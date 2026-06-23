@@ -50,8 +50,8 @@ def _run_collection():
         db.close()
 
 
-def _cleanup_old_snapshots(keep_days: int = 90):
-    """90일 이상 된 경쟁사 스냅샷 자동 삭제."""
+def _cleanup_old_snapshots(keep_days: int = 50):
+    """50일 이상 된 경쟁사 스냅샷 자동 삭제."""
     db = SessionLocal()
     try:
         cutoff = datetime.now(timezone.utc) - timedelta(days=keep_days)
@@ -63,7 +63,7 @@ def _cleanup_old_snapshots(keep_days: int = 90):
         db.commit()
         if deleted:
             import logging
-            logging.info("경쟁사 스냅샷 자동 삭제: %d건 (90일 초과)", deleted)
+            logging.info("경쟁사 스냅샷 자동 삭제: %d건 (50일 초과)", deleted)
     finally:
         db.close()
 
