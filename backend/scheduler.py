@@ -4,7 +4,7 @@ from apscheduler.triggers.cron import CronTrigger
 
 from backend.collector import collect_all
 from backend.database import SessionLocal
-from backend.kakao import send_rank_alert, send_collection_summary
+from backend.telegram import send_rank_alert, send_collection_summary
 from backend.models import ProductRankHistory, TrackedProduct
 from sqlalchemy import desc
 

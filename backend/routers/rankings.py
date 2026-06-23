@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 
 from backend.collector import collect_all, _search_keyword, _item_matches_product, search_keyword_with_error
 from backend.database import get_db
-from backend.kakao import send_rank_alert, send_collection_summary
+from backend.telegram import send_rank_alert, send_collection_summary
 from backend.models import KeywordTop10History, ProductRankHistory, TrackedProduct, WatchKeyword
 
 router = APIRouter(prefix="/rankings", tags=["rankings"])

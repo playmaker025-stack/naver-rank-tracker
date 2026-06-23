@@ -158,7 +158,8 @@ def _get_keyword_items(keyword: str, db: Session) -> tuple[list[dict], str]:
     if not existing:
         db.add(SystemAlert(type="scraper_error", reason=reason, keyword=keyword))
         db.commit()
-        send_scraper_error(keyword, reason)
+        from backend.telegram import send_scraper_error as _tg_error
+        _tg_error(keyword, reason)
 
     return _search_keyword(keyword), "api"
 
