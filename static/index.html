@@ -306,6 +306,15 @@
     }
     .report-btn:hover { background: #f0fdf4; }
 
+    /* ── 랭킹 현황 키워드 행 ── */
+    .rank-kw-row {
+      display: flex; align-items: center; gap: 10px;
+      padding: 8px 14px; border-bottom: 1px solid #f5f5f5; font-size: .83rem;
+    }
+    .rank-kw-row:last-child { border-bottom: none; }
+    .rank-curr { font-weight: 800; color: #1a1a2e; min-width: 52px; }
+    .rank-time { margin-left: auto; color: #ccc; font-size: .74rem; white-space: nowrap; }
+
   </style>
 </head>
 <body>
@@ -336,18 +345,7 @@
       <h2>내 상품 순위 현황</h2>
       <button class="btn btn-ghost btn-sm" onclick="loadRankings()">↺ 새로고침</button>
     </div>
-    <div class="table-wrap">
-      <table id="rankingsTable">
-        <thead>
-          <tr>
-            <th>스토어</th><th>상품명</th><th>키워드</th>
-            <th>현재 순위</th><th>이전 순위</th><th>변동</th>
-            <th>수집 시각</th><th>히스토리</th>
-          </tr>
-        </thead>
-        <tbody id="rankingsTbody"><tr><td colspan="8" class="empty-msg">로딩 중…</td></tr></tbody>
-      </table>
-    </div>
+    <div id="rankingsContainer"><p class="empty-msg">로딩 중…</p></div>
   </div>
 
   <!-- ─── 순위 추이 ─── -->
@@ -486,31 +484,63 @@ function fmtDate(iso) {
    랭킹 현황
 ════════════════════════════════ */
 async function loadRankings() {
-  const tbody = document.getElementById('rankingsTbody');
+  const container = document.getElementById('rankingsContainer');
+  container.innerHTML = '<p class="empty-msg">로딩 중…</p>';
   try {
     const res = await fetch(`${API}/rankings/products`);
     const data = await res.json();
-    if (!data.length) { tbody.innerHTML = '<tr><td colspan="8" class="empty-msg">수집된 랭킹 데이터가 없습니다.</td></tr>'; return; }
+    if (!data.length) {
+      container.innerHTML = '<p class="empty-msg">수집된 랭킹 데이터가 없습니다. "지금 수집" 버튼을 눌러주세요.</p>';
+      return;
+    }
 
     let last = '';
-    data.forEach(r => {
-      if (r.collected_at > last) last = r.collected_at;
-    });
+    data.forEach(r => { if (r.collected_at > last) last = r.collected_at; });
     document.getElementById('lastCollected').textContent = `마지막 수집: ${fmtDate(last)}`;
 
-    tbody.innerHTML = data.map(r => `
-      <tr>
-        <td>${r.store_name}</td>
-        <td><a href="${r.product_url || '#'}" target="_blank" style="color:#03c75a;text-decoration:none">${r.product_name}</a></td>
-        <td><span class="kw-tag">${r.keyword}</span></td>
-        <td><b>${r.rank != null ? r.rank + '위' : '—'}</b></td>
-        <td>${r.prev_rank != null ? r.prev_rank + '위' : '—'}</td>
-        <td>${rankChange(r.rank, r.prev_rank)}</td>
-        <td>${fmtDate(r.collected_at)}</td>
-        <td><button class="btn btn-ghost btn-sm" onclick="openChart(${r.product_id},'${r.keyword}','${r.product_name}')">📈</button></td>
-      </tr>`).join('');
+    // 스토어 → 제품 → 키워드 그룹핑
+    const byStore = {};
+    data.forEach(r => {
+      if (!byStore[r.store_name]) byStore[r.store_name] = {};
+      const prods = byStore[r.store_name];
+      if (!prods[r.product_name]) prods[r.product_name] = { product_id: r.product_id, keywords: [] };
+      prods[r.product_name].keywords.push(r);
+    });
+
+    container.innerHTML = Object.entries(byStore).map(([storeName, products], si) => `
+      <div class="acc-store">
+        <div class="acc-store-header" onclick="toggleAcc('rk-s${si}')">
+          <span class="acc-arrow" id="arr-rk-s${si}">▶</span>
+          🏪 ${escH(storeName)}
+          <span style="margin-left:auto;font-size:.75rem;color:#888;font-weight:400">${Object.keys(products).length}개 제품</span>
+        </div>
+        <div class="acc-store-body" id="body-rk-s${si}">
+          ${Object.entries(products).map(([prodName, prod], pi) => {
+            const bestRank = prod.keywords.reduce((b, k) => k.rank != null && (b == null || k.rank < b) ? k.rank : b, null);
+            const summary = bestRank != null ? `최고 ${bestRank}위` : '100위 밖';
+            return `
+              <div class="acc-kw">
+                <div class="acc-kw-header" onclick="toggleAcc('rk-p${si}-${pi}')">
+                  <span class="acc-arrow" id="arr-rk-p${si}-${pi}">▶</span>
+                  ${escH(prodName)}
+                  <span style="margin-left:auto;font-size:.75rem;color:#888;font-weight:400">${prod.keywords.length}개 키워드 · ${summary}</span>
+                </div>
+                <div class="acc-kw-body" id="body-rk-p${si}-${pi}">
+                  ${prod.keywords.map(r => `
+                    <div class="rank-kw-row">
+                      <span class="kw-tag">${escH(r.keyword)}</span>
+                      <span class="rank-curr">${r.rank != null ? r.rank+'위' : '100위 밖'}</span>
+                      <span>${rankChange(r.rank, r.prev_rank)}</span>
+                      <span class="rank-time">${fmtDate(r.collected_at)}</span>
+                      <button class="btn btn-ghost btn-sm" style="padding:2px 8px;font-size:.72rem" onclick="openChart(${r.product_id},'${escQ(r.keyword)}','${escQ(r.product_name)}')">📈</button>
+                    </div>`).join('')}
+                </div>
+              </div>`;
+          }).join('')}
+        </div>
+      </div>`).join('');
   } catch {
-    tbody.innerHTML = '<tr><td colspan="8" class="empty-msg">데이터 로드 실패</td></tr>';
+    container.innerHTML = '<p class="empty-msg">데이터 로드 실패</p>';
   }
 }
 
