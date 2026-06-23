@@ -113,7 +113,7 @@ def get_product_rank_history(product_id: int, keyword: str, limit: int = 30, db:
 @router.get("/keywords", response_model=list[KeywordTop10Out])
 def get_keyword_top10(db: Session = Depends(get_db)):
     keywords = db.query(WatchKeyword).filter(WatchKeyword.is_active == True).all()  # noqa: E712
-    our_mall_names = {s.mall_name for s in db.query(Store).all()}
+    our_mall_names = {s.mall_name.replace(' ', '').lower() for s in db.query(Store).all()}
     result = []
     for wk in keywords:
         latest_ts = (
@@ -169,7 +169,7 @@ def get_keyword_top10(db: Session = Depends(get_db)):
                     collected_at=row.collected_at.isoformat(),
                     prev_rank=prev.get("rank"),
                     prev_price=prev.get("price"),
-                    is_our_store=row.mall_name in our_mall_names,
+                    is_our_store=row.mall_name.replace(' ', '').lower() in our_mall_names,
                 )
             )
     return result
