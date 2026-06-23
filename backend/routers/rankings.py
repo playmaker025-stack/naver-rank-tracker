@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 from backend.collector import collect_all, _search_keyword, _item_matches_product, search_keyword_with_error
 from backend.database import get_db
 from backend.telegram import send_rank_alert, send_collection_summary
-from backend.models import KeywordTop10History, ProductRankHistory, TrackedProduct, WatchKeyword
+from backend.models import KeywordTop10History, ProductRankHistory, Store, TrackedProduct, WatchKeyword
 
 router = APIRouter(prefix="/rankings", tags=["rankings"])
 
@@ -31,6 +31,9 @@ class KeywordTop10Out(BaseModel):
     product_url: str
     price: int | None
     collected_at: str
+    prev_rank: int | None = None
+    prev_price: int | None = None
+    is_our_store: bool = False
 
 
 @router.get("/products", response_model=list[ProductRankOut])
@@ -110,6 +113,7 @@ def get_product_rank_history(product_id: int, keyword: str, limit: int = 30, db:
 @router.get("/keywords", response_model=list[KeywordTop10Out])
 def get_keyword_top10(db: Session = Depends(get_db)):
     keywords = db.query(WatchKeyword).filter(WatchKeyword.is_active == True).all()  # noqa: E712
+    our_mall_names = {s.mall_name for s in db.query(Store).all()}
     result = []
     for wk in keywords:
         latest_ts = (
@@ -120,6 +124,29 @@ def get_keyword_top10(db: Session = Depends(get_db)):
         )
         if not latest_ts:
             continue
+
+        # 이전 수집 데이터 (순위·가격 변동 감지용)
+        prev_ts = (
+            db.query(KeywordTop10History.collected_at)
+            .filter(
+                KeywordTop10History.watch_keyword_id == wk.id,
+                KeywordTop10History.collected_at < latest_ts[0],
+            )
+            .order_by(desc(KeywordTop10History.collected_at))
+            .first()
+        )
+        prev_data: dict[str, dict] = {}
+        if prev_ts:
+            for r in (
+                db.query(KeywordTop10History)
+                .filter(
+                    KeywordTop10History.watch_keyword_id == wk.id,
+                    KeywordTop10History.collected_at == prev_ts[0],
+                )
+                .all()
+            ):
+                prev_data[r.naver_product_id] = {"rank": r.rank, "price": r.price}
+
         rows = (
             db.query(KeywordTop10History)
             .filter(
@@ -130,6 +157,7 @@ def get_keyword_top10(db: Session = Depends(get_db)):
             .all()
         )
         for row in rows:
+            prev = prev_data.get(row.naver_product_id, {})
             result.append(
                 KeywordTop10Out(
                     keyword=wk.keyword,
@@ -139,6 +167,9 @@ def get_keyword_top10(db: Session = Depends(get_db)):
                     product_url=row.product_url,
                     price=row.price,
                     collected_at=row.collected_at.isoformat(),
+                    prev_rank=prev.get("rank"),
+                    prev_price=prev.get("price"),
+                    is_our_store=row.mall_name in our_mall_names,
                 )
             )
     return result

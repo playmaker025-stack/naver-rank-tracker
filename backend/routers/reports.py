@@ -50,8 +50,9 @@ def get_report(product_id: int, keyword: str, db: Session = Depends(get_db)):
             .all()
         )
 
-    # ── 이전 경쟁사 스냅샷 (신규 진입 감지) ──
+    # ── 이전 경쟁사 스냅샷 (신규 진입·가격 변동 감지) ──
     prev_product_ids: set[str] = set()
+    prev_prices: dict[str, int | None] = {}
     if latest_ts:
         prev_ts = (
             db.query(KeywordCompetitorSnapshot.collected_at)
@@ -63,15 +64,18 @@ def get_report(product_id: int, keyword: str, db: Session = Depends(get_db)):
             .first()
         )
         if prev_ts:
-            prev_rows = (
-                db.query(KeywordCompetitorSnapshot.naver_product_id)
+            prev_snap_rows = (
+                db.query(KeywordCompetitorSnapshot)
                 .filter(
                     KeywordCompetitorSnapshot.keyword == keyword,
                     KeywordCompetitorSnapshot.collected_at == prev_ts[0],
                 )
                 .all()
             )
-            prev_product_ids = {r[0] for r in prev_rows if r[0]}
+            for r in prev_snap_rows:
+                if r.naver_product_id:
+                    prev_product_ids.add(r.naver_product_id)
+                    prev_prices[r.naver_product_id] = r.price
 
     # ── 우리 제품 식별 ──
     pid = product.naver_product_id
@@ -148,6 +152,12 @@ def get_report(product_id: int, keyword: str, db: Session = Depends(get_db)):
                 "title": c.title,
                 "mall_name": c.mall_name,
                 "price": c.price,
+                "prev_price": prev_prices.get(c.naver_product_id) if c.naver_product_id else None,
+                "price_changed": bool(
+                    c.naver_product_id
+                    and c.naver_product_id in prev_prices
+                    and prev_prices[c.naver_product_id] != c.price
+                ),
                 "is_ours": c.naver_product_id == pid,
                 "is_new": bool(
                     c.naver_product_id

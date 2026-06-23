@@ -98,16 +98,24 @@
   }
   .comp-table td { padding: 9px 12px; border-bottom: 1px solid #f5f5f5; vertical-align: middle; }
   .comp-table tr:last-child td { border-bottom: none; }
-  .comp-table tr.is-ours { background: #f0fdf4; }
+
+  /* 우리 스토어: 초록 왼쪽 테두리 + 배경 */
+  .comp-table tr.is-ours { background: #f0fdf4; border-left: 3px solid #03c75a; }
+  .comp-table tr.is-ours td { font-weight: 600; }
+
   .comp-table tr.is-new td:first-child::after {
     content: 'NEW'; font-size: .65rem; background: #fef3c7; color: #d97706;
     border-radius: 4px; padding: 1px 5px; margin-left: 6px; font-weight: 700; vertical-align: middle;
   }
   .rank-cell { font-weight: 700; color: #03c75a; font-size: .95rem; }
   .ours-badge {
-    display: inline-block; font-size: .65rem; background: #d1fae5; color: #065f46;
+    display: inline-block; font-size: .65rem; background: #03c75a; color: #fff;
     border-radius: 4px; padding: 1px 6px; font-weight: 700; vertical-align: middle; margin-left: 4px;
   }
+  /* 가격 변동 */
+  .price-up   { color: #ef4444; font-weight: 700; }
+  .price-down { color: #03c75a; font-weight: 700; }
+  .price-prev { text-decoration: line-through; color: #ccc; font-size: .74rem; margin-left: 5px; }
 
   /* 차트 영역 */
   .chart-wrap { height: 160px; margin-top: 4px; }
@@ -352,13 +360,25 @@ function renderReport(d) {
   /* ─── TOP20 경쟁사 테이블 ─── */
   let compTableSection = '';
   if (d.competitors.length > 0) {
-    const rows = d.competitors.map(c => `
+    const rows = d.competitors.map(c => {
+      // 가격 셀 렌더
+      let priceHtml = '—';
+      if (c.price != null) {
+        if (c.price_changed && c.prev_price != null) {
+          const up = c.price > c.prev_price;
+          priceHtml = `<span class="${up ? 'price-up' : 'price-down'}">${fmt(c.price)}원</span><span class="price-prev">${fmt(c.prev_price)}원</span>`;
+        } else {
+          priceHtml = `${fmt(c.price)}원`;
+        }
+      }
+      return `
       <tr class="${c.is_ours ? 'is-ours' : ''} ${c.is_new && !c.is_ours ? 'is-new' : ''}">
         <td class="rank-cell">${c.rank}</td>
         <td>${esc(c.title)}${c.is_ours ? '<span class="ours-badge">우리</span>' : ''}</td>
         <td style="color:#888">${esc(c.mall_name)}</td>
-        <td style="text-align:right">${c.price ? fmt(c.price)+'원' : '—'}</td>
-      </tr>`).join('');
+        <td style="text-align:right">${priceHtml}</td>
+      </tr>`;
+    }).join('');
     compTableSection = `
       <div class="card">
         <div class="card-title">TOP20 경쟁 현황</div>

@@ -724,13 +724,34 @@ async function loadKeywordTop10() {
           <div class="table-wrap">
             <table>
               <thead><tr><th>#</th><th>상품명</th><th>판매처</th><th>가격</th></tr></thead>
-              <tbody>${g.items.map(i => `
-                <tr>
-                  <td><b style="color:#03c75a">${i.rank}</b></td>
+              <tbody>${g.items.map(i => {
+                // 순위 변동
+                let rankHtml = `<b style="color:#03c75a">${i.rank}</b>`;
+                if (i.prev_rank != null && i.prev_rank !== i.rank) {
+                  const d = i.prev_rank - i.rank;
+                  rankHtml += d > 0
+                    ? `<span style="color:#03c75a;font-size:.7rem;margin-left:3px">▲${d}</span>`
+                    : `<span style="color:#ef4444;font-size:.7rem;margin-left:3px">▼${Math.abs(d)}</span>`;
+                }
+                // 가격 변동
+                let priceHtml = i.price != null ? i.price.toLocaleString()+'원' : '—';
+                if (i.price_changed && i.prev_price != null) {
+                  const up = i.price > i.prev_price;
+                  priceHtml = `<span style="color:${up?'#ef4444':'#03c75a'};font-weight:700">${i.price.toLocaleString()}원</span> <span style="text-decoration:line-through;color:#ccc;font-size:.74rem">${i.prev_price.toLocaleString()}원</span>`;
+                }
+                // 우리 스토어 행 스타일
+                const rowStyle = i.is_our_store ? 'background:#f0fdf4;border-left:3px solid #03c75a' : '';
+                const mallHtml = i.is_our_store
+                  ? `<span style="color:#03a84e;font-weight:700">${escH(i.mall_name)}</span> <span style="font-size:.65rem;background:#03c75a;color:#fff;border-radius:4px;padding:1px 5px;font-weight:700">우리</span>`
+                  : escH(i.mall_name);
+                return `
+                <tr style="${rowStyle}">
+                  <td>${rankHtml}</td>
                   <td><a href="${i.product_url}" target="_blank" style="color:#222;text-decoration:none;font-size:.83rem">${escH(i.product_name)}</a></td>
-                  <td style="font-size:.82rem">${escH(i.mall_name)}</td>
-                  <td style="font-size:.82rem">${i.price != null ? i.price.toLocaleString()+'원' : '—'}</td>
-                </tr>`).join('')}
+                  <td style="font-size:.82rem">${mallHtml}</td>
+                  <td style="font-size:.82rem">${priceHtml}</td>
+                </tr>`;
+              }).join('')}
               </tbody>
             </table>
           </div>
