@@ -30,9 +30,27 @@ def scrape_naver_shopping(keyword: str, max_rank: int = 100) -> list[dict]:
                 ),
                 viewport={"width": 1280, "height": 900},
                 locale="ko-KR",
-                extra_http_headers={"Accept-Language": "ko-KR,ko;q=0.9"},
+                extra_http_headers={
+                    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+                    "Accept-Language": "ko-KR,ko;q=0.9,en-US;q=0.8",
+                    "Accept-Encoding": "gzip, deflate, br",
+                    "sec-ch-ua": '"Chromium";v="120", "Google Chrome";v="120", "Not-A.Brand";v="99"',
+                    "sec-ch-ua-mobile": "?0",
+                    "sec-ch-ua-platform": '"Windows"',
+                    "Upgrade-Insecure-Requests": "1",
+                },
             )
             page = context.new_page()
+
+            # navigator.webdriver 숨기기
+            page.add_init_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
+
+            # 네이버 메인 먼저 방문해서 쿠키 획득
+            try:
+                page.goto("https://www.naver.com", wait_until="load", timeout=15000)
+                page.wait_for_timeout(1500)
+            except Exception:
+                pass
 
             # 모든 JSON 응답 가로채기
             captured: list[dict] = []
