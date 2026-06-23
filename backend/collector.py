@@ -11,6 +11,7 @@ from backend.models import (
     KeywordTop10History,
     ProductPageMetrics,
     ProductRankHistory,
+    ProductTitleHistory,
     TrackedProduct,
     WatchKeyword,
 )
@@ -192,6 +193,8 @@ def collect_product_rankings(db: Session, collected_at: datetime | None = None) 
                 ))
             metrics_saved.add(product.id)
 
+        found_title: str | None = None  # 이번 수집에서 API로 확인된 실제 제목
+
         for pk in product.keywords:
             if pk.keyword not in keyword_cache:
                 keyword_cache[pk.keyword] = _get_keyword_items(pk.keyword)
@@ -201,6 +204,9 @@ def collect_product_rankings(db: Session, collected_at: datetime | None = None) 
             for i, item in enumerate(items, start=1):
                 if _item_matches_product(item, product):
                     rank = i
+                    # 처음 발견된 제목을 기록
+                    if found_title is None:
+                        found_title = re.sub(r"<[^>]+>", "", item.get("title", "")).strip()
                     break
 
             db.add(ProductRankHistory(
@@ -228,6 +234,16 @@ def collect_product_rankings(db: Session, collected_at: datetime | None = None) 
                         price=price,
                     ))
                 competitor_saved.add(pk.keyword)
+
+        # 제목 변경 감지: API에서 가져온 제목과 저장된 제목 비교
+        if found_title and found_title != product.product_name and product.product_name:
+            db.add(ProductTitleHistory(
+                product_id=product.id,
+                old_title=product.product_name,
+                new_title=found_title,
+                changed_at=collected_at,
+            ))
+            product.product_name = found_title
 
     db.commit()
     return saved

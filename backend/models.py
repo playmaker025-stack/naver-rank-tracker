@@ -76,6 +76,17 @@ class SystemAlert(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
 
+class ProductTitleHistory(Base):
+    """상품 제목 변경 이력."""
+    __tablename__ = "product_title_history"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    product_id: Mapped[int] = mapped_column(Integer, ForeignKey("tracked_products.id"), nullable=False, index=True)
+    old_title: Mapped[str] = mapped_column(String, nullable=False)
+    new_title: Mapped[str] = mapped_column(String, nullable=False)
+    changed_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+
+
 class KeywordCompetitorSnapshot(Base):
     """키워드별 TOP20 경쟁사 스냅샷 — 수집마다 저장."""
     __tablename__ = "keyword_competitor_snapshots"

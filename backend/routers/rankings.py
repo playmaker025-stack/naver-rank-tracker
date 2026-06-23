@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 from backend.collector import collect_all, _search_keyword, _item_matches_product, search_keyword_with_error
 from backend.database import get_db
 from backend.telegram import send_rank_alert, send_collection_summary
-from backend.models import KeywordTop10History, ProductRankHistory, Store, TrackedProduct, WatchKeyword
+from backend.models import KeywordTop10History, ProductRankHistory, ProductTitleHistory, Store, TrackedProduct, WatchKeyword
 
 router = APIRouter(prefix="/rankings", tags=["rankings"])
 
@@ -173,6 +173,26 @@ def get_keyword_top10(db: Session = Depends(get_db)):
                 )
             )
     return result
+
+
+@router.get("/products/{product_id}/title-history")
+def get_title_history(product_id: int, db: Session = Depends(get_db)):
+    """상품 제목 변경 이력 (최근 30건)."""
+    rows = (
+        db.query(ProductTitleHistory)
+        .filter(ProductTitleHistory.product_id == product_id)
+        .order_by(desc(ProductTitleHistory.changed_at))
+        .limit(30)
+        .all()
+    )
+    return [
+        {
+            "old_title": r.old_title,
+            "new_title": r.new_title,
+            "changed_at": r.changed_at.isoformat(),
+        }
+        for r in rows
+    ]
 
 
 @router.get("/debug/env")

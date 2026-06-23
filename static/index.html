@@ -585,14 +585,16 @@ async function loadTrends() {
         <div class="acc-store-body" id="body-s${si}">
           ${Object.entries(products).map(([prodName, kwItems], pi) => {
             const kwIndices = kwItems.map(i => i._idx).join(',');
+            const prodId = kwItems[0].product_id;
             return `
               <div class="acc-kw">
-                <div class="acc-kw-header" onclick="toggleProductAcc('pp${si}-${pi}',[${kwIndices}])">
+                <div class="acc-kw-header" onclick="toggleProductAcc('pp${si}-${pi}',[${kwIndices}],${prodId})">
                   <span class="acc-arrow" id="arr-pp${si}-${pi}">▶</span>
                   ${escH(prodName)}
                   <span style="margin-left:auto;font-size:.75rem;color:#888;font-weight:400">${kwItems.length}개 키워드</span>
                 </div>
                 <div class="acc-kw-body" id="body-pp${si}-${pi}">
+                  <div id="title-hist-pp${si}-${pi}"></div>
                   ${kwItems.map(item => {
                     const latest = item.history[item.history.length - 1];
                     const currRank = latest?.rank;
@@ -623,13 +625,38 @@ function toggleAcc(id) {
   document.getElementById(`arr-${id}`).classList.toggle('open');
 }
 
-function toggleProductAcc(id, kwIndices) {
+function toggleProductAcc(id, kwIndices, productId) {
   const body  = document.getElementById(`body-${id}`);
   const arrow = document.getElementById(`arr-${id}`);
   const wasOpen = body.classList.contains('open');
   body.classList.toggle('open');
   arrow.classList.toggle('open');
-  if (!wasOpen) kwIndices.forEach(initSparkline);
+  if (!wasOpen) {
+    kwIndices.forEach(initSparkline);
+    if (productId) loadTitleHistory(productId, id);
+  }
+}
+
+async function loadTitleHistory(productId, accId) {
+  const el = document.getElementById(`title-hist-${accId}`);
+  if (!el || el.dataset.loaded) return;
+  try {
+    const res = await fetch(`${API}/rankings/products/${productId}/title-history`);
+    const data = await res.json();
+    if (!data.length) { el.style.display = 'none'; return; }
+    el.innerHTML = `
+      <div style="padding:10px 14px 6px;border-top:1px solid #f0f0f0">
+        <div style="font-size:.72rem;font-weight:700;color:#aaa;letter-spacing:.04em;margin-bottom:6px">📝 제목 변경 이력</div>
+        ${data.map(h => `
+          <div style="font-size:.75rem;padding:5px 0;border-bottom:1px solid #f9f9f9;line-height:1.5">
+            <span style="color:#bbb;margin-right:8px">${fmtDate(h.changed_at)}</span>
+            <span style="color:#888;text-decoration:line-through">${escH(h.old_title)}</span>
+            <span style="color:#aaa;margin:0 6px">→</span>
+            <span style="color:#1a1a2e;font-weight:600">${escH(h.new_title)}</span>
+          </div>`).join('')}
+      </div>`;
+    el.dataset.loaded = '1';
+  } catch { el.style.display = 'none'; }
 }
 
 function initSparkline(idx) {
