@@ -193,6 +193,19 @@ def debug_search(keyword: str, db: Session = Depends(get_db)):
     }
 
 
+@router.get("/debug/scraper")
+def debug_scraper(keyword: str):
+    """스크래퍼 직접 실행 결과 확인."""
+    from backend.scraper import scrape_naver_shopping, ScraperError
+    try:
+        items = scrape_naver_shopping(keyword, max_rank=5)
+        return {"ok": True, "count": len(items), "items": items[:5]}
+    except ScraperError as e:
+        return {"ok": False, "reason": e.reason}
+    except Exception as e:
+        return {"ok": False, "reason": str(e)[:200]}
+
+
 @router.post("/collect")
 def manual_collect(db: Session = Depends(get_db)):
     """수동 수집 트리거."""
