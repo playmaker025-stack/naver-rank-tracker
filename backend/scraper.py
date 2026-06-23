@@ -1,5 +1,5 @@
 import re
-from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeout
+from playwright.sync_api import sync_playwright
 
 
 class ScraperError(Exception):
@@ -34,12 +34,13 @@ def scrape_naver_shopping(keyword: str, max_rank: int = 100) -> list[dict]:
             )
             page = context.new_page()
 
-            # XHR 응답 가로채기
-            captured_items: list[dict] = []
+            # 모든 JSON 응답 가로채기
+            captured: list[dict] = []
 
             def _on_response(resp):
                 try:
-                    if "api/search" in resp.url and resp.status == 200:
+                    ct = resp.headers.get("content-type", "")
+                    if resp.status == 200 and "json" in ct:
                         data = resp.json()
                         lst = (
                             data.get("shoppingResult", {}).get("products", {}).get("list")
@@ -47,8 +48,8 @@ def scrape_naver_shopping(keyword: str, max_rank: int = 100) -> list[dict]:
                             or data.get("list")
                             or []
                         )
-                        if lst:
-                            captured_items.extend(lst)
+                        if lst and len(lst) > 5:
+                            captured.extend(lst)
                 except Exception:
                     pass
 
@@ -56,7 +57,7 @@ def scrape_naver_shopping(keyword: str, max_rank: int = 100) -> list[dict]:
 
             url = f"https://search.shopping.naver.com/search/all?query={keyword}&sort=RANK"
             try:
-                page.goto(url, timeout=30000, wait_until="domcontentloaded")
+                page.goto(url, timeout=40000, wait_until="load")
             except Exception as e:
                 raise ScraperError(f"navigation_failed: {str(e)[:120]}")
 
@@ -64,82 +65,109 @@ def scrape_naver_shopping(keyword: str, max_rank: int = 100) -> list[dict]:
             if any(x in page.url for x in ["robot", "block", "captcha"]):
                 raise ScraperError("bot_detected: 네이버 봇 차단 감지")
 
-            page.wait_for_timeout(3000)
+            # XHR 완료 대기
+            page.wait_for_timeout(5000)
 
-            # XHR로 데이터가 잡혔으면 바로 반환
-            if captured_items:
-                return _format_api_items(captured_items[:max_rank])
+            # 1순위: XHR로 잡은 데이터
+            if captured:
+                return _format_api_items(captured[:max_rank])
 
-            # __NEXT_DATA__ 시도
-            next_data = page.evaluate("""
-                () => {
-                    try {
-                        const el = document.getElementById('__NEXT_DATA__');
-                        return el ? JSON.parse(el.textContent) : null;
-                    } catch(e) { return null; }
-                }
-            """)
-            if next_data:
-                lst = _extract_from_next_data(next_data)
-                if lst:
-                    return lst[:max_rank]
+            # 2순위: __NEXT_DATA__
+            next_items = _try_next_data(page, max_rank)
+            if next_items:
+                return next_items
 
-            # DOM 폴백: 상품 목록 대기
-            try:
-                page.wait_for_function(
-                    "() => document.querySelectorAll('[class*=\"product_item\"]').length > 0 || "
-                    "document.querySelectorAll('[class*=\"basicList\"] li').length > 0",
-                    timeout=12000,
-                )
-            except PlaywrightTimeout:
-                raise ScraperError("timeout: 상품 목록 로딩 실패 - 네이버 쇼핑 HTML 구조가 변경되었을 수 있습니다")
+            # 3순위: DOM 파싱 (여러 선택자 시도)
+            dom_items = _try_dom(page, max_rank)
+            if dom_items:
+                return dom_items
 
-            items = page.evaluate(f"""
-                () => {{
-                    const MAX = {max_rank};
-                    const selectors = [
-                        '[class*="product_item"]',
-                        '[class*="basicList"] > li',
-                        '[class*="productList"] > li',
-                        'ul[class*="list_"] > li',
-                    ];
-                    let els = [];
-                    for (const sel of selectors) {{
-                        els = [...document.querySelectorAll(sel)];
-                        if (els.length > 3) break;
-                    }}
-                    if (!els.length) return [];
-
-                    return els.slice(0, MAX).map((el, i) => {{
-                        const nameEl = (
-                            el.querySelector('[class*="name_"] a') ||
-                            el.querySelector('[class*="product_name"] a') ||
-                            el.querySelector('a[class*="name"]') ||
-                            el.querySelector('a[href*="smartstore.naver.com"]') ||
-                            el.querySelector('a[href*="shopping.naver.com"]')
-                        );
-                        const mallEl = (
-                            el.querySelector('[class*="mall_name"]') ||
-                            el.querySelector('[class*="mallName"]') ||
-                            el.querySelector('[class*="seller_name"]') ||
-                            el.querySelector('[class*="store_name"]')
-                        );
-                        const title = nameEl?.textContent?.trim() || '';
-                        const link = nameEl?.getAttribute('href') || '';
-                        const mallName = mallEl?.textContent?.trim() || '';
-                        if (!title && !link) return null;
-                        return {{ rank: i + 1, title, mallName, link, productId: '' }};
-                    }}).filter(Boolean);
-                }}
-            """)
-
-            if not items:
-                raise ScraperError("parse_error: 상품 파싱 실패 - 네이버 쇼핑 HTML/JS 구조 변경 가능성")
-
-            return items
+            raise ScraperError("parse_error: 상품 파싱 실패 - 네이버 쇼핑 구조 변경 가능성")
 
         finally:
             browser.close()
+
+
+def _try_next_data(page, max_rank: int) -> list[dict]:
+    try:
+        data = page.evaluate("""
+            () => {
+                try {
+                    const el = document.getElementById('__NEXT_DATA__');
+                    return el ? JSON.parse(el.textContent) : null;
+                } catch(e) { return null; }
+            }
+        """)
+        if not data:
+            return []
+        props = data.get("props", {}).get("pageProps", {})
+        lst = (
+            props.get("initialState", {}).get("products", {}).get("list")
+            or props.get("searchResult", {}).get("products", {}).get("list")
+            or props.get("products", {}).get("list")
+            or []
+        )
+        if lst:
+            return _format_api_items(lst[:max_rank])
+    except Exception:
+        pass
+    return []
+
+
+def _try_dom(page, max_rank: int) -> list[dict]:
+    try:
+        items = page.evaluate(f"""
+            () => {{
+                const MAX = {max_rank};
+                // 다양한 선택자 시도
+                const candidates = [
+                    '[class*="product_item"]',
+                    '[class*="basicList"] li',
+                    '[class*="productList"] li',
+                    '[class*="goods_list"] li',
+                    'ul[class*="list"] > li',
+                    'div[class*="item_"]',
+                    'li[data-id]',
+                ];
+                let els = [];
+                for (const sel of candidates) {{
+                    const found = [...document.querySelectorAll(sel)];
+                    if (found.length > 3) {{ els = found; break; }}
+                }}
+                if (!els.length) return [];
+
+                return els.slice(0, MAX).map((el, i) => {{
+                    // 상품명/링크
+                    const nameEl = (
+                        el.querySelector('a[class*="name"]') ||
+                        el.querySelector('[class*="name_"] a') ||
+                        el.querySelector('[class*="title"] a') ||
+                        el.querySelector('a[href*="smartstore.naver.com"]') ||
+                        el.querySelector('a[href*="shopping.naver.com"]')
+                    );
+                    // 쇼핑몰명
+                    const mallEl = (
+                        el.querySelector('[class*="mall_name"]') ||
+                        el.querySelector('[class*="mallName"]') ||
+                        el.querySelector('[class*="seller_"]') ||
+                        el.querySelector('[class*="store_name"]')
+                    );
+                    const title = nameEl?.textContent?.trim() || '';
+                    const link = nameEl?.getAttribute('href') || '';
+                    if (!title && !link) return null;
+                    return {{
+                        rank: i + 1,
+                        title,
+                        mallName: mallEl?.textContent?.trim() || '',
+                        link,
+                        productId: '',
+                    }};
+                }}).filter(Boolean);
+            }}
+        """)
+        return items or []
+    except Exception:
+        return []
 
 
 def _format_api_items(items: list[dict]) -> list[dict]:
@@ -153,19 +181,3 @@ def _format_api_items(items: list[dict]) -> list[dict]:
         }
         for i, item in enumerate(items)
     ]
-
-
-def _extract_from_next_data(data: dict) -> list[dict]:
-    try:
-        props = data.get("props", {}).get("pageProps", {})
-        lst = (
-            props.get("initialState", {}).get("products", {}).get("list")
-            or props.get("searchResult", {}).get("products", {}).get("list")
-            or props.get("products", {}).get("list")
-            or []
-        )
-        if lst:
-            return _format_api_items(lst)
-    except Exception:
-        pass
-    return []
