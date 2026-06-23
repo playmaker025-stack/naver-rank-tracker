@@ -1,5 +1,5 @@
 from datetime import datetime
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, func
+from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Index, Integer, String, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from backend.database import Base
 
@@ -74,6 +74,35 @@ class SystemAlert(Base):
     keyword: Mapped[str | None] = mapped_column(String, nullable=True)
     is_dismissed: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+
+class KeywordCompetitorSnapshot(Base):
+    """키워드별 TOP20 경쟁사 스냅샷 — 수집마다 저장."""
+    __tablename__ = "keyword_competitor_snapshots"
+    __table_args__ = (
+        Index("ix_kcs_keyword_collected_at", "keyword", "collected_at"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    keyword: Mapped[str] = mapped_column(String, nullable=False)
+    collected_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    search_rank: Mapped[int] = mapped_column(Integer, nullable=False)
+    naver_product_id: Mapped[str | None] = mapped_column(String, nullable=True)
+    title: Mapped[str] = mapped_column(String, nullable=False, default="")
+    mall_name: Mapped[str] = mapped_column(String, nullable=False, default="")
+    price: Mapped[int | None] = mapped_column(Integer, nullable=True)
+
+
+class ProductPageMetrics(Base):
+    """SmartStore 상품 페이지 스크래핑 결과 — 수집마다 저장."""
+    __tablename__ = "product_page_metrics"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    product_id: Mapped[int] = mapped_column(Integer, ForeignKey("tracked_products.id"), nullable=False, index=True)
+    collected_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    review_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    rating: Mapped[float | None] = mapped_column(Float, nullable=True)
+    wishlist_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
 
 class KeywordTop10History(Base):

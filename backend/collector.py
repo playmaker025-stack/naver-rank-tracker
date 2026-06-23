@@ -1,3 +1,4 @@
+import json
 import os
 import re
 import httpx
@@ -6,7 +7,9 @@ from datetime import datetime, timezone
 from sqlalchemy.orm import Session
 
 from backend.models import (
+    KeywordCompetitorSnapshot,
     KeywordTop10History,
+    ProductPageMetrics,
     ProductRankHistory,
     TrackedProduct,
     WatchKeyword,
@@ -133,6 +136,34 @@ def _get_keyword_items(keyword: str) -> list[dict]:
     return _search_keyword(keyword)
 
 
+def _fetch_page_metrics(product_url: str) -> dict:
+    """SmartStore 상품 페이지에서 리뷰수·평점·찜수 추출."""
+    if not product_url or "smartstore.naver.com" not in product_url:
+        return {}
+    try:
+        with httpx.Client(timeout=15, follow_redirects=True) as client:
+            resp = client.get(product_url, headers={
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                "Accept-Language": "ko-KR,ko;q=0.9",
+            })
+        if resp.status_code != 200:
+            return {}
+        m = re.search(r'<script id="__NEXT_DATA__"[^>]*>(.*?)</script>', resp.text, re.DOTALL)
+        if not m:
+            return {}
+        nd = json.loads(m.group(1))
+        detail = nd["props"]["pageProps"]["initialState"]["product"]["productDetail"]
+        ra = detail.get("reviewAmount", {})
+        review_count = int(ra.get("totalReviewCount", 0)) or None
+        score = ra.get("averageReviewScore", "")
+        rating = round(float(score), 1) if score else None
+        wc = detail.get("benefitSection", {}).get("wishCount") or detail.get("wishCount")
+        wishlist_count = int(wc) if wc else None
+        return {"review_count": review_count, "rating": rating, "wishlist_count": wishlist_count}
+    except Exception:
+        return {}
+
+
 def collect_product_rankings(db: Session, collected_at: datetime | None = None) -> int:
     """활성화된 모든 추적 상품의 키워드별 순위를 수집한다."""
     if collected_at is None:
@@ -144,9 +175,23 @@ def collect_product_rankings(db: Session, collected_at: datetime | None = None) 
         .all()
     )
 
-    keyword_cache: dict[str, tuple[list[dict], str]] = {}
+    keyword_cache: dict[str, list[dict]] = {}
+    competitor_saved: set[str] = set()   # 키워드당 1회만 저장
+    metrics_saved: set[int] = set()      # 제품당 1회만 저장
     saved = 0
+
     for product in products:
+        # SmartStore 페이지 메트릭 수집
+        if product.id not in metrics_saved:
+            m = _fetch_page_metrics(product.product_url)
+            if m and any(v is not None for v in m.values()):
+                db.add(ProductPageMetrics(
+                    product_id=product.id,
+                    collected_at=collected_at,
+                    **m,
+                ))
+            metrics_saved.add(product.id)
+
         for pk in product.keywords:
             if pk.keyword not in keyword_cache:
                 keyword_cache[pk.keyword] = _get_keyword_items(pk.keyword)
@@ -158,15 +203,31 @@ def collect_product_rankings(db: Session, collected_at: datetime | None = None) 
                     rank = i
                     break
 
-            db.add(
-                ProductRankHistory(
-                    product_id=product.id,
-                    keyword=pk.keyword,
-                    rank=rank,
-                    collected_at=collected_at,
-                )
-            )
+            db.add(ProductRankHistory(
+                product_id=product.id,
+                keyword=pk.keyword,
+                rank=rank,
+                collected_at=collected_at,
+            ))
             saved += 1
+
+            # 경쟁사 스냅샷 저장 (키워드당 1회)
+            if pk.keyword not in competitor_saved:
+                for i, item in enumerate(items[:20], start=1):
+                    try:
+                        price = int(item.get("lprice", "0") or "0") or None
+                    except (ValueError, TypeError):
+                        price = None
+                    db.add(KeywordCompetitorSnapshot(
+                        keyword=pk.keyword,
+                        collected_at=collected_at,
+                        search_rank=i,
+                        naver_product_id=item.get("productId"),
+                        title=re.sub(r"<[^>]+>", "", item.get("title", "")),
+                        mall_name=item.get("mallName", ""),
+                        price=price,
+                    ))
+                competitor_saved.add(pk.keyword)
 
     db.commit()
     return saved
