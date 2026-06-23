@@ -77,9 +77,16 @@ def get_report(product_id: int, keyword: str, db: Session = Depends(get_db)):
                     prev_product_ids.add(r.naver_product_id)
                     prev_prices[r.naver_product_id] = r.price
 
-    # ── 우리 제품 식별 ──
+    # ── 우리 스토어 식별 (mall_name 비교, 공백·대소문자 무시) ──
+    our_mall = (product.store.mall_name if product.store else "").replace(" ", "").lower()
     pid = product.naver_product_id
-    our_entry = next((c for c in current_competitors if c.naver_product_id == pid), None)
+
+    def _is_ours(c) -> bool:
+        if our_mall and c.mall_name.replace(" ", "").lower() == our_mall:
+            return True
+        return bool(c.naver_product_id and c.naver_product_id == pid)
+
+    our_entry = next((c for c in current_competitors if _is_ours(c)), None)
     our_title = our_entry.title if our_entry else (product.product_name or "")
 
     # ── 가격 분석 ──
@@ -97,7 +104,7 @@ def get_report(product_id: int, keyword: str, db: Session = Depends(get_db)):
         c for c in top10
         if c.naver_product_id
         and c.naver_product_id not in prev_product_ids
-        and c.naver_product_id != pid
+        and not _is_ours(c)
     ]
 
     # ── 페이지 메트릭 (최근 2회) ──
@@ -158,7 +165,7 @@ def get_report(product_id: int, keyword: str, db: Session = Depends(get_db)):
                     and c.naver_product_id in prev_prices
                     and prev_prices[c.naver_product_id] != c.price
                 ),
-                "is_ours": c.naver_product_id == pid,
+                "is_ours": _is_ours(c),
                 "is_new": bool(
                     c.naver_product_id
                     and c.naver_product_id not in prev_product_ids
