@@ -252,6 +252,45 @@
 
     .empty-msg { color: #bbb; text-align: center; padding: 28px 0; font-size: .9rem; }
 
+    /* ── 아코디언 ── */
+    .acc-store {
+      border: 1.5px solid #e0e0e0;
+      border-radius: 12px;
+      margin-bottom: 10px;
+      overflow: hidden;
+    }
+    .acc-store-header {
+      display: flex; align-items: center; gap: 10px;
+      padding: 13px 18px; cursor: pointer;
+      background: #f7f8fa; user-select: none;
+      font-weight: 700; font-size: .95rem;
+    }
+    .acc-store-header:hover { background: #eef9f3; }
+    .acc-store-body { display: none; padding: 10px 14px 14px; }
+    .acc-store-body.open { display: block; }
+
+    .acc-kw {
+      border: 1px solid #eee;
+      border-radius: 8px;
+      margin-bottom: 6px;
+      overflow: hidden;
+    }
+    .acc-kw-header {
+      display: flex; align-items: center; gap: 8px;
+      padding: 10px 14px; cursor: pointer;
+      background: #fff; user-select: none;
+      font-size: .875rem; font-weight: 600;
+    }
+    .acc-kw-header:hover { background: #f5fdf8; }
+    .acc-kw-body { display: none; padding: 14px 16px; background: #fafcff; }
+    .acc-kw-body.open { display: block; }
+
+    .acc-arrow {
+      display: inline-block; transition: transform .2s;
+      color: #bbb; font-size: .75rem; flex-shrink: 0;
+    }
+    .acc-arrow.open { transform: rotate(90deg); color: #03c75a; }
+
     /* ── 시스템 오류 배너 ── */
     #alertBanner {
       display: none;
@@ -337,7 +376,7 @@
       <button class="btn btn-ghost btn-sm" onclick="loadTrends()">↺ 새로고침</button>
     </div>
     <p style="color:#888;font-size:.82rem;margin-bottom:18px">매일 10시·19시 수집 기준 · 순위 숫자가 작을수록(1위에 가까울수록) 좋습니다</p>
-    <div id="trendsContainer" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:20px">
+    <div id="trendsContainer">
       <p class="empty-msg">로딩 중…</p>
     </div>
   </div>
@@ -502,7 +541,6 @@ let _trendCharts = {};
 async function loadTrends() {
   const container = document.getElementById('trendsContainer');
   container.innerHTML = '<p class="empty-msg">데이터 불러오는 중…</p>';
-
   Object.values(_trendCharts).forEach(c => c.destroy());
   _trendCharts = {};
 
@@ -515,69 +553,93 @@ async function loadTrends() {
       return;
     }
 
-    container.innerHTML = data.map((item, idx) => {
-      const latest = item.history[item.history.length - 1];
-      const currRank = latest?.rank;
-      const rankLabel = currRank != null ? `현재 <b style="color:#03c75a;font-size:1.1rem">${currRank}위</b>` : `<span style="color:#bbb">100위 밖</span>`;
-      return `
-        <div style="background:#fff;border:1.5px solid #eee;border-radius:14px;padding:18px">
-          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
-            <span style="font-size:.78rem;background:#e6f9f0;color:#03a84e;border-radius:6px;padding:2px 7px;font-weight:600">${escH(item.store_name)}</span>
-            <span style="font-size:.78rem;color:#aaa">${item.history.length}회 수집</span>
-          </div>
-          <div style="font-size:.88rem;font-weight:700;color:#1a1a2e;margin-bottom:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${escH(item.product_name)}</div>
-          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
-            <span style="font-size:.8rem;color:#555">키워드: <b>${escH(item.keyword)}</b></span>
-            <span style="font-size:.82rem">${rankLabel}</span>
-          </div>
-          <canvas id="trendChart-${idx}" height="110"></canvas>
-        </div>`;
-    }).join('');
+    // 나중에 차트 생성할 때 쓸 데이터 저장
+    window._trendsData = data;
 
+    // 스토어별로 그룹핑
+    const byStore = {};
     data.forEach((item, idx) => {
-      const ctx = document.getElementById(`trendChart-${idx}`);
-      const labels = item.history.map(h => fmtDate(h.collected_at));
-      const ranks  = item.history.map(h => h.rank);
-      const ptSize = ranks.length > 20 ? 2 : 4;
-
-      _trendCharts[idx] = new Chart(ctx, {
-        type: 'line',
-        data: {
-          labels,
-          datasets: [{
-            data: ranks,
-            borderColor: '#03c75a',
-            backgroundColor: 'rgba(3,199,90,.08)',
-            pointBackgroundColor: '#03c75a',
-            pointRadius: ptSize,
-            tension: 0.3,
-            fill: true,
-          }]
-        },
-        options: {
-          responsive: true,
-          scales: {
-            y: {
-              reverse: true,
-              min: 1,
-              ticks: { font: { size: 10 }, stepSize: 1 },
-              title: { display: false }
-            },
-            x: { ticks: { font: { size: 9 }, maxTicksLimit: 7 } }
-          },
-          plugins: {
-            legend: { display: false },
-            tooltip: {
-              callbacks: {
-                label: ctx => ctx.raw != null ? `${ctx.raw}위` : '100위 밖'
-              }
-            }
-          }
-        }
-      });
+      if (!byStore[item.store_name]) byStore[item.store_name] = [];
+      byStore[item.store_name].push({ ...item, _idx: idx });
     });
+
+    container.innerHTML = Object.entries(byStore).map(([storeName, items], si) => `
+      <div class="acc-store">
+        <div class="acc-store-header" onclick="toggleAcc('s${si}')">
+          <span class="acc-arrow" id="arr-s${si}">▶</span>
+          🏪 ${escH(storeName)}
+          <span style="margin-left:auto;font-size:.75rem;color:#888;font-weight:400">${items.length}개 키워드</span>
+        </div>
+        <div class="acc-store-body" id="body-s${si}">
+          ${items.map(item => {
+            const latest = item.history[item.history.length - 1];
+            const currRank = latest?.rank;
+            const rankLabel = currRank != null
+              ? `<b style="color:#03c75a">${currRank}위</b>`
+              : `<span style="color:#bbb">100위 밖</span>`;
+            return `
+              <div class="acc-kw">
+                <div class="acc-kw-header" onclick="toggleTrendKw(${item._idx})">
+                  <span class="acc-arrow" id="arr-kw${item._idx}">▶</span>
+                  ${escH(item.keyword)}
+                  <span style="margin-left:auto;font-size:.78rem;color:#888">${rankLabel} · ${item.history.length}회</span>
+                </div>
+                <div class="acc-kw-body" id="body-kw${item._idx}">
+                  <canvas id="canvas-kw${item._idx}" height="120"></canvas>
+                </div>
+              </div>`;
+          }).join('')}
+        </div>
+      </div>`).join('');
+
   } catch {
     container.innerHTML = '<p class="empty-msg">데이터 로드 실패</p>';
+  }
+}
+
+function toggleAcc(id) {
+  document.getElementById(`body-${id}`).classList.toggle('open');
+  document.getElementById(`arr-${id}`).classList.toggle('open');
+}
+
+function toggleTrendKw(idx) {
+  const body  = document.getElementById(`body-kw${idx}`);
+  const arrow = document.getElementById(`arr-kw${idx}`);
+  const wasOpen = body.classList.contains('open');
+  body.classList.toggle('open');
+  arrow.classList.toggle('open');
+
+  if (!wasOpen && !_trendCharts[idx] && window._trendsData?.[idx]) {
+    const item = window._trendsData[idx];
+    const ctx  = document.getElementById(`canvas-kw${idx}`);
+    const labels = item.history.map(h => fmtDate(h.collected_at));
+    const ranks  = item.history.map(h => h.rank);
+    _trendCharts[idx] = new Chart(ctx, {
+      type: 'line',
+      data: {
+        labels,
+        datasets: [{
+          data: ranks,
+          borderColor: '#03c75a',
+          backgroundColor: 'rgba(3,199,90,.08)',
+          pointBackgroundColor: '#03c75a',
+          pointRadius: ranks.length > 20 ? 2 : 4,
+          tension: 0.3,
+          fill: true,
+        }]
+      },
+      options: {
+        responsive: true,
+        scales: {
+          y: { reverse: true, min: 1, ticks: { font: { size: 10 }, stepSize: 1 } },
+          x: { ticks: { font: { size: 9 }, maxTicksLimit: 7 } }
+        },
+        plugins: {
+          legend: { display: false },
+          tooltip: { callbacks: { label: c => c.raw != null ? `${c.raw}위` : '100위 밖' } }
+        }
+      }
+    });
   }
 }
 
@@ -615,7 +677,10 @@ async function loadKeywordTop10() {
   try {
     const res = await fetch(`${API}/rankings/keywords`);
     const data = await res.json();
-    if (!data.length) { container.innerHTML = '<p class="empty-msg">수집된 데이터가 없습니다. "지금 수집" 버튼을 눌러주세요.</p>'; return; }
+    if (!data.length) {
+      container.innerHTML = '<p class="empty-msg">수집된 데이터가 없습니다. "지금 수집" 버튼을 눌러주세요.</p>';
+      return;
+    }
 
     const groups = {};
     data.forEach(r => {
@@ -623,24 +688,27 @@ async function loadKeywordTop10() {
       groups[r.keyword].items.push(r);
     });
 
-    container.innerHTML = Object.entries(groups).map(([kw, g]) => `
-      <div style="margin-bottom:28px">
-        <div style="display:flex;align-items:center;gap:12px;margin-bottom:10px">
-          <h3 style="font-size:.95rem;font-weight:700">"${escH(kw)}" 검색 TOP10</h3>
-          <span style="font-size:.75rem;color:#aaa">${fmtDate(g.collected_at)} 기준</span>
+    container.innerHTML = Object.entries(groups).map(([kw, g], idx) => `
+      <div class="acc-kw" style="margin-bottom:8px">
+        <div class="acc-kw-header" onclick="toggleAcc('top10-${idx}')">
+          <span class="acc-arrow" id="arr-top10-${idx}">▶</span>
+          <span style="font-size:.9rem">"${escH(kw)}" TOP10</span>
+          <span style="margin-left:auto;font-size:.75rem;color:#aaa">${fmtDate(g.collected_at)} 기준</span>
         </div>
-        <div class="table-wrap">
-          <table>
-            <thead><tr><th>#</th><th>상품명</th><th>판매처</th><th>가격</th></tr></thead>
-            <tbody>${g.items.map(i => `
-              <tr>
-                <td><b style="color:#03c75a">${i.rank}</b></td>
-                <td><a href="${i.product_url}" target="_blank" style="color:#222;text-decoration:none">${escH(i.product_name)}</a></td>
-                <td>${escH(i.mall_name)}</td>
-                <td>${i.price != null ? i.price.toLocaleString() + '원' : '—'}</td>
-              </tr>`).join('')}
-            </tbody>
-          </table>
+        <div class="acc-kw-body" id="body-top10-${idx}">
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>#</th><th>상품명</th><th>판매처</th><th>가격</th></tr></thead>
+              <tbody>${g.items.map(i => `
+                <tr>
+                  <td><b style="color:#03c75a">${i.rank}</b></td>
+                  <td><a href="${i.product_url}" target="_blank" style="color:#222;text-decoration:none;font-size:.83rem">${escH(i.product_name)}</a></td>
+                  <td style="font-size:.82rem">${escH(i.mall_name)}</td>
+                  <td style="font-size:.82rem">${i.price != null ? i.price.toLocaleString()+'원' : '—'}</td>
+                </tr>`).join('')}
+              </tbody>
+            </table>
+          </div>
         </div>
       </div>`).join('');
   } catch {
