@@ -65,6 +65,17 @@ class ProductRankHistory(Base):
     product: Mapped["TrackedProduct"] = relationship(back_populates="rank_history")
 
 
+class SystemAlert(Base):
+    __tablename__ = "system_alerts"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    type: Mapped[str] = mapped_column(String, nullable=False, comment="scraper_error | api_error")
+    reason: Mapped[str] = mapped_column(String, nullable=False)
+    keyword: Mapped[str | None] = mapped_column(String, nullable=True)
+    is_dismissed: Mapped[bool] = mapped_column(Boolean, default=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+
 class KeywordTop10History(Base):
     __tablename__ = "keyword_top10_history"
 

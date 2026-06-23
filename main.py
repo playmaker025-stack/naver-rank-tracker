@@ -18,7 +18,7 @@ if not os.environ.get("DATABASE_URL"):
 
 from backend.database import init_db
 from backend.scheduler import start_scheduler, stop_scheduler
-from backend.routers import stores, products, keywords, rankings
+from backend.routers import stores, products, keywords, rankings, system
 
 
 async def _init_db_bg() -> None:
@@ -52,6 +52,7 @@ app.include_router(stores.router, prefix="/api")
 app.include_router(products.router, prefix="/api")
 app.include_router(keywords.router, prefix="/api")
 app.include_router(rankings.router, prefix="/api")
+app.include_router(system.router, prefix="/api")
 
 app.mount("/static", StaticFiles(directory="static"), name="static")
 

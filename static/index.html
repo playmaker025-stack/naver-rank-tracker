@@ -251,6 +251,29 @@
     #toast.show { opacity: 1; transform: translateY(0); }
 
     .empty-msg { color: #bbb; text-align: center; padding: 28px 0; font-size: .9rem; }
+
+    /* ── 시스템 오류 배너 ── */
+    #alertBanner {
+      display: none;
+      background: #fff3cd;
+      border-bottom: 2px solid #ffc107;
+      padding: 10px 24px;
+      font-size: .84rem;
+      color: #7d5a00;
+    }
+    #alertBanner.show { display: flex; align-items: flex-start; gap: 12px; }
+    #alertBanner .alert-icon { font-size: 1.1rem; flex-shrink: 0; margin-top: 1px; }
+    #alertBanner .alert-body { flex: 1; }
+    #alertBanner .alert-title { font-weight: 700; margin-bottom: 3px; }
+    #alertBanner .alert-list { margin: 0; padding-left: 18px; }
+    #alertBanner .alert-list li { margin-bottom: 2px; }
+    #alertBanner .alert-actions { display: flex; gap: 8px; align-items: center; flex-shrink: 0; }
+    #alertBanner .alert-dismiss {
+      background: none; border: 1px solid #c8a000; color: #7d5a00;
+      border-radius: 6px; padding: 4px 12px; font-size: .8rem; cursor: pointer;
+    }
+    #alertBanner .alert-dismiss:hover { background: #ffe080; }
+    #alertBanner .alert-fallback { font-size: .78rem; color: #03a84e; font-weight: 600; }
   </style>
 </head>
 <body>
@@ -262,6 +285,19 @@
   </div>
   <button class="collect-btn" id="collectBtn" onclick="manualCollect()">지금 수집</button>
 </header>
+
+<!-- ─── 시스템 오류 배너 ─── -->
+<div id="alertBanner">
+  <div class="alert-icon">⚠️</div>
+  <div class="alert-body">
+    <div class="alert-title">스크래퍼 오류 감지 — 비로그인 API로 대체 수집 중</div>
+    <ul class="alert-list" id="alertList"></ul>
+  </div>
+  <div class="alert-actions">
+    <span class="alert-fallback">✓ 백업 수집 정상</span>
+    <button class="alert-dismiss" onclick="dismissAllAlerts()">확인</button>
+  </div>
+</div>
 
 <div class="tabs">
   <button class="tab active" onclick="switchTab('rankings')">📊 랭킹 현황</button>
@@ -853,6 +889,28 @@ async function deleteKeyword(id) {
 }
 
 /* ════════════════════════════════
+   시스템 알림 배너
+════════════════════════════════ */
+async function loadAlerts() {
+  try {
+    const res = await fetch(`${API}/system/alerts`);
+    const alerts = await res.json();
+    const banner = document.getElementById('alertBanner');
+    const list = document.getElementById('alertList');
+    if (!alerts.length) { banner.classList.remove('show'); return; }
+    list.innerHTML = alerts.map(a =>
+      `<li>[${a.keyword || '?'}] ${a.reason}</li>`
+    ).join('');
+    banner.classList.add('show');
+  } catch {}
+}
+
+async function dismissAllAlerts() {
+  await fetch(`${API}/system/alerts/dismiss-all`, { method: 'POST' });
+  document.getElementById('alertBanner').classList.remove('show');
+}
+
+/* ════════════════════════════════
    수동 수집
 ════════════════════════════════ */
 async function manualCollect() {
@@ -914,6 +972,8 @@ function closeChart() {
 /* ── 초기 로드 ── */
 loadRankings();
 loadWatchKeywordChips();
+loadAlerts();
+setInterval(loadAlerts, 60000);
 </script>
 </body>
 </html>

@@ -106,6 +106,18 @@ def send_rank_alert(alerts: list[dict]) -> None:
     send_to_extra(message)
 
 
+def send_scraper_error(keyword: str, reason: str) -> None:
+    """스크래퍼 오류 알림 전송."""
+    msg = (
+        f"[랭킹 수집 오류] 스크래퍼 실패\n"
+        f"키워드: {keyword}\n"
+        f"사유: {reason[:120]}\n"
+        f"→ 비로그인 API로 대체 수집합니다"
+    )
+    send_to_me(msg)
+    send_to_extra(msg)
+
+
 def send_collection_summary(result: dict) -> None:
     """수집 완료 요약 알림."""
     from datetime import datetime, timezone, timedelta
