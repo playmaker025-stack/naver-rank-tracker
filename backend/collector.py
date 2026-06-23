@@ -8,7 +8,6 @@ from sqlalchemy.orm import Session
 from backend.models import (
     KeywordTop10History,
     ProductRankHistory,
-    SystemAlert,
     TrackedProduct,
     WatchKeyword,
 )
@@ -129,39 +128,9 @@ def _item_matches_product(item: dict, product: "TrackedProduct") -> bool:
     return False
 
 
-def _get_keyword_items(keyword: str, db: Session) -> tuple[list[dict], str]:
-    """키워드 검색. scraper → API 순으로 시도. (items, method) 반환."""
-    from backend.scraper import scrape_naver_shopping, ScraperError
-    from backend.kakao import send_scraper_error
-
-    try:
-        items = scrape_naver_shopping(keyword)
-        # 이전 스크래퍼 오류 해소 시 알림 dismiss
-        db.query(SystemAlert).filter(
-            SystemAlert.keyword == keyword,
-            SystemAlert.type == "scraper_error",
-            SystemAlert.is_dismissed == False,  # noqa: E712
-        ).update({"is_dismissed": True})
-        db.commit()
-        return items, "scraper"
-    except ScraperError as e:
-        reason = e.reason
-    except Exception as e:
-        reason = f"unknown: {str(e)[:120]}"
-
-    # 중복 알림 방지: 같은 키워드·사유가 이미 있으면 스킵
-    existing = db.query(SystemAlert).filter(
-        SystemAlert.keyword == keyword,
-        SystemAlert.type == "scraper_error",
-        SystemAlert.is_dismissed == False,  # noqa: E712
-    ).first()
-    if not existing:
-        db.add(SystemAlert(type="scraper_error", reason=reason, keyword=keyword))
-        db.commit()
-        from backend.telegram import send_scraper_error as _tg_error
-        _tg_error(keyword, reason)
-
-    return _search_keyword(keyword), "api"
+def _get_keyword_items(keyword: str) -> list[dict]:
+    """키워드로 네이버 쇼핑 검색 결과 반환."""
+    return _search_keyword(keyword)
 
 
 def collect_product_rankings(db: Session, collected_at: datetime | None = None) -> int:
@@ -180,9 +149,9 @@ def collect_product_rankings(db: Session, collected_at: datetime | None = None) 
     for product in products:
         for pk in product.keywords:
             if pk.keyword not in keyword_cache:
-                keyword_cache[pk.keyword] = _get_keyword_items(pk.keyword, db)
+                keyword_cache[pk.keyword] = _get_keyword_items(pk.keyword)
 
-            items, _ = keyword_cache[pk.keyword]
+            items = keyword_cache[pk.keyword]
             rank = None
             for i, item in enumerate(items, start=1):
                 if _item_matches_product(item, product):
