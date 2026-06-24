@@ -510,7 +510,10 @@ async function loadRankings() {
       prods[r.product_name].keywords.push(r);
     });
 
-    container.innerHTML = Object.entries(byStore).map(([storeName, products], si) => `
+    // 가나다 내림순 정렬
+    const sortedStores = Object.entries(byStore).sort(([a], [b]) => b.localeCompare(a, 'ko'));
+
+    container.innerHTML = sortedStores.map(([storeName, products], si) => `
       <div class="acc-store">
         <div class="acc-store-header" onclick="toggleAcc('rk-s${si}')">
           <span class="acc-arrow" id="arr-rk-s${si}">▶</span>
@@ -518,7 +521,7 @@ async function loadRankings() {
           <span style="margin-left:auto;font-size:.75rem;color:#888;font-weight:400">${Object.keys(products).length}개 제품</span>
         </div>
         <div class="acc-store-body" id="body-rk-s${si}">
-          ${Object.entries(products).map(([prodName, prod], pi) => {
+          ${Object.entries(products).sort(([a], [b]) => b.localeCompare(a, 'ko')).map(([prodName, prod], pi) => {
             const bestRank = prod.keywords.reduce((b, k) => k.rank != null && (b == null || k.rank < b) ? k.rank : b, null);
             const summary = bestRank != null ? `최고 ${bestRank}위` : '100위 밖';
             return `
@@ -529,7 +532,7 @@ async function loadRankings() {
                   <span style="margin-left:auto;font-size:.75rem;color:#888;font-weight:400">${prod.keywords.length}개 키워드 · ${summary}</span>
                 </div>
                 <div class="acc-kw-body" id="body-rk-p${si}-${pi}">
-                  ${prod.keywords.map(r => `
+                  ${[...prod.keywords].sort((a, b) => b.keyword.localeCompare(a.keyword, 'ko')).map(r => `
                     <div class="rank-kw-row">
                       <span class="kw-tag">${escH(r.keyword)}</span>
                       <span class="rank-curr">${r.rank != null ? r.rank+'위' : '100위 밖'}</span>
@@ -779,7 +782,7 @@ async function loadKeywordTop10() {
       groups[r.keyword].items.push(r);
     });
 
-    container.innerHTML = Object.entries(groups).map(([kw, g], idx) => `
+    container.innerHTML = Object.entries(groups).sort(([a], [b]) => b.localeCompare(a, 'ko')).map(([kw, g], idx) => `
       <div class="acc-kw" style="margin-bottom:8px">
         <div class="acc-kw-header" onclick="toggleAcc('top10-${idx}')">
           <span class="acc-arrow" id="arr-top10-${idx}">▶</span>
