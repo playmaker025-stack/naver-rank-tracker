@@ -69,10 +69,12 @@ def _cleanup_old_snapshots(keep_days: int = 50):
 
 
 def start_scheduler():
-    scheduler.add_job(_run_collection, CronTrigger(hour=10, minute=0), id="collect_morning", replace_existing=True)
-    scheduler.add_job(_run_collection, CronTrigger(hour=19, minute=0), id="collect_evening", replace_existing=True)
-    # 매주 일요일 새벽 3시에 오래된 경쟁사 스냅샷 정리
-    scheduler.add_job(_cleanup_old_snapshots, CronTrigger(day_of_week="sun", hour=3, minute=0), id="cleanup_snapshots", replace_existing=True)
+    # CronTrigger에 timezone 명시 — Railway 서버는 UTC이므로 KST(UTC+9) 변환
+    # 10:00 KST = 01:00 UTC / 19:00 KST = 10:00 UTC / 03:00 KST(일) = 18:00 UTC(토)
+    kst = "Asia/Seoul"
+    scheduler.add_job(_run_collection, CronTrigger(hour=10, minute=0, timezone=kst), id="collect_morning", replace_existing=True)
+    scheduler.add_job(_run_collection, CronTrigger(hour=19, minute=0, timezone=kst), id="collect_evening", replace_existing=True)
+    scheduler.add_job(_cleanup_old_snapshots, CronTrigger(day_of_week="sun", hour=3, minute=0, timezone=kst), id="cleanup_snapshots", replace_existing=True)
     scheduler.start()
 
 

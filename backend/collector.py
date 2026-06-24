@@ -235,14 +235,19 @@ def collect_product_rankings(db: Session, collected_at: datetime | None = None) 
                     ))
                 competitor_saved.add(pk.keyword)
 
-        # 제목 변경 감지: API에서 가져온 제목과 저장된 제목 비교
-        if found_title and found_title != product.product_name and product.product_name:
-            db.add(ProductTitleHistory(
-                product_id=product.id,
-                old_title=product.product_name,
-                new_title=found_title,
-                changed_at=collected_at,
-            ))
+        # 제목 변경 감지: 이전 수집 기록이 있을 때만 이력으로 기록 (첫 수집 오탐 방지)
+        if found_title and found_title != product.product_name:
+            has_prior = db.query(ProductRankHistory).filter(
+                ProductRankHistory.product_id == product.id,
+                ProductRankHistory.collected_at < collected_at,
+            ).first() is not None
+            if has_prior:
+                db.add(ProductTitleHistory(
+                    product_id=product.id,
+                    old_title=product.product_name,
+                    new_title=found_title,
+                    changed_at=collected_at,
+                ))
             product.product_name = found_title
 
     db.commit()

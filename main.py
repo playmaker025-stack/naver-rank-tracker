@@ -21,12 +21,32 @@ from backend.scheduler import start_scheduler, stop_scheduler
 from backend.routers import stores, products, keywords, rankings, system, reports
 
 
+def _purge_false_title_history() -> None:
+    """첫 수집 오탐으로 생긴 제목 변경 이력 일괄 삭제 (2026-06-25 이전 기록)."""
+    from datetime import datetime, timezone
+    from backend.database import SessionLocal
+    from backend.models import ProductTitleHistory
+    cutoff = datetime(2026, 6, 25, 0, 0, 0, tzinfo=timezone.utc)
+    try:
+        db = SessionLocal()
+        deleted = db.query(ProductTitleHistory).filter(
+            ProductTitleHistory.changed_at < cutoff
+        ).delete(synchronize_session=False)
+        db.commit()
+        db.close()
+        if deleted:
+            logging.info("오탐 제목 이력 %d건 삭제 완료", deleted)
+    except Exception as exc:
+        logging.error("오탐 이력 삭제 실패: %s", exc)
+
+
 async def _init_db_bg() -> None:
     """init_db()를 스레드풀에서 실행 — 이벤트 루프 블로킹 방지."""
     try:
         loop = asyncio.get_running_loop()
         await asyncio.wait_for(loop.run_in_executor(None, init_db), timeout=60)
         logging.info("DB initialized")
+        _purge_false_title_history()
     except Exception as exc:
         logging.error("DB init failed (non-fatal): %s", exc)
 
