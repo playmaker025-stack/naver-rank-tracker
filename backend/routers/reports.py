@@ -8,6 +8,7 @@ from backend.models import (
     KeywordCompetitorSnapshot,
     ProductPageMetrics,
     ProductRankHistory,
+    Store,
     TrackedProduct,
 )
 
@@ -77,14 +78,16 @@ def get_report(product_id: int, keyword: str, db: Session = Depends(get_db)):
                     prev_product_ids.add(r.naver_product_id)
                     prev_prices[r.naver_product_id] = r.price
 
-    # ── 우리 스토어 식별 (mall_name 비교, 공백·대소문자 무시) ──
-    our_mall = (product.store.mall_name if product.store else "").replace(" ", "").lower()
+    # ── 등록된 모든 스토어 맵 (mall_name → 스토어명) ──
+    all_stores = db.query(Store).order_by(Store.id).all()
+    our_mall_map = {s.mall_name.replace(" ", "").lower(): s.name for s in all_stores}
     pid = product.naver_product_id
 
+    def _our_store_name(c) -> str | None:
+        return our_mall_map.get(c.mall_name.replace(" ", "").lower())
+
     def _is_ours(c) -> bool:
-        if our_mall and c.mall_name.replace(" ", "").lower() == our_mall:
-            return True
-        return bool(c.naver_product_id and c.naver_product_id == pid)
+        return bool(_our_store_name(c)) or bool(c.naver_product_id and c.naver_product_id == pid)
 
     our_entry = next((c for c in current_competitors if _is_ours(c)), None)
     our_title = our_entry.title if our_entry else (product.product_name or "")
@@ -133,6 +136,7 @@ def get_report(product_id: int, keyword: str, db: Session = Depends(get_db)):
         "keyword": keyword,
         "product_url": product.product_url,
         "generated_at": datetime.now(timezone.utc).isoformat(),
+        "registered_stores": [{"id": s.id, "name": s.name} for s in all_stores],
         "rank": {
             "current": current_rank,
             "prev": prev_rank,
@@ -166,6 +170,7 @@ def get_report(product_id: int, keyword: str, db: Session = Depends(get_db)):
                     and prev_prices[c.naver_product_id] != c.price
                 ),
                 "is_ours": _is_ours(c),
+                "our_store_name": _our_store_name(c),
                 "is_new": bool(
                     c.naver_product_id
                     and c.naver_product_id not in prev_product_ids

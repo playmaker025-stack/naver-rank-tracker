@@ -756,8 +756,18 @@ async function loadWatchKeywordChips() {
 async function loadKeywordTop10() {
   const container = document.getElementById('keywordTop10Container');
   try {
-    const res = await fetch(`${API}/rankings/keywords`);
+    const [res, storesRes] = await Promise.all([
+      fetch(`${API}/rankings/keywords`),
+      fetch(`${API}/stores`),
+    ]);
     const data = await res.json();
+    const stores = await storesRes.json();
+
+    // 스토어별 색상 팔레트 (등록 순서대로)
+    const PALETTE = ['#03c75a', '#3b82f6', '#f59e0b', '#8b5cf6', '#ef4444', '#06b6d4'];
+    const storeColorMap = {};
+    stores.forEach((s, i) => { storeColorMap[s.name] = PALETTE[i % PALETTE.length]; });
+
     if (!data.length) {
       container.innerHTML = '<p class="empty-msg">수집된 데이터가 없습니다. "지금 수집" 버튼을 눌러주세요.</p>';
       return;
@@ -795,10 +805,11 @@ async function loadKeywordTop10() {
                   const up = i.price > i.prev_price;
                   priceHtml = `<span style="color:${up?'#ef4444':'#03c75a'};font-weight:700">${i.price.toLocaleString()}원</span> <span style="text-decoration:line-through;color:#ccc;font-size:.74rem">${i.prev_price.toLocaleString()}원</span>`;
                 }
-                // 우리 스토어 행 스타일
-                const rowStyle = i.is_our_store ? 'background:#f0fdf4;border-left:3px solid #03c75a' : '';
-                const mallHtml = i.is_our_store
-                  ? `<span style="color:#03a84e;font-weight:700">${escH(i.mall_name)}</span> <span style="font-size:.65rem;background:#03c75a;color:#fff;border-radius:4px;padding:1px 5px;font-weight:700">우리</span>`
+                // 우리 스토어 행 스타일 (스토어별 색상)
+                const color = i.our_store_name ? (storeColorMap[i.our_store_name] || PALETTE[0]) : null;
+                const rowStyle = color ? `background:${color}18;border-left:3px solid ${color}` : '';
+                const mallHtml = color
+                  ? `<span style="color:${color};font-weight:700">${escH(i.mall_name)}</span> <span style="font-size:.63rem;background:${color};color:#fff;border-radius:4px;padding:1px 5px;font-weight:700">${escH(i.our_store_name)}</span>`
                   : escH(i.mall_name);
                 return `
                 <tr style="${rowStyle}">

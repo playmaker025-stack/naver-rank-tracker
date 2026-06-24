@@ -99,8 +99,6 @@
   .comp-table td { padding: 9px 12px; border-bottom: 1px solid #f5f5f5; vertical-align: middle; }
   .comp-table tr:last-child td { border-bottom: none; }
 
-  /* 우리 스토어: 초록 왼쪽 테두리 + 배경 */
-  .comp-table tr.is-ours { background: #f0fdf4; border-left: 3px solid #03c75a; }
   .comp-table tr.is-ours td { font-weight: 600; }
 
   .comp-table tr.is-new td:first-child::after {
@@ -109,7 +107,7 @@
   }
   .rank-cell { font-weight: 700; color: #03c75a; font-size: .95rem; }
   .ours-badge {
-    display: inline-block; font-size: .65rem; background: #03c75a; color: #fff;
+    display: inline-block; font-size: .65rem; color: #fff;
     border-radius: 4px; padding: 1px 6px; font-weight: 700; vertical-align: middle; margin-left: 4px;
   }
   /* 가격 변동 */
@@ -358,6 +356,11 @@ function renderReport(d) {
   }
 
   /* ─── TOP20 경쟁사 테이블 ─── */
+  // 스토어별 색상 팔레트
+  const PALETTE = ['#03c75a', '#3b82f6', '#f59e0b', '#8b5cf6', '#ef4444', '#06b6d4'];
+  const storeColorMap = {};
+  (d.registered_stores || []).forEach((s, i) => { storeColorMap[s.name] = PALETTE[i % PALETTE.length]; });
+
   let compTableSection = '';
   if (d.competitors.length > 0) {
     const rows = d.competitors.map(c => {
@@ -371,11 +374,15 @@ function renderReport(d) {
           priceHtml = `${fmt(c.price)}원`;
         }
       }
+      // 우리 스토어 색상
+      const color = c.our_store_name ? (storeColorMap[c.our_store_name] || PALETTE[0]) : null;
+      const rowStyle = color ? `background:${color}18;border-left:3px solid ${color}` : '';
+      const badge = color ? `<span class="ours-badge" style="background:${color}">${esc(c.our_store_name)}</span>` : '';
       return `
-      <tr class="${c.is_ours ? 'is-ours' : ''} ${c.is_new && !c.is_ours ? 'is-new' : ''}">
+      <tr class="${c.is_ours ? 'is-ours' : ''} ${c.is_new && !c.is_ours ? 'is-new' : ''}" style="${rowStyle}">
         <td class="rank-cell">${c.rank}</td>
-        <td>${esc(c.title)}${c.is_ours ? '<span class="ours-badge">우리</span>' : ''}</td>
-        <td style="color:#888">${esc(c.mall_name)}</td>
+        <td>${esc(c.title)}${badge}</td>
+        <td style="color:${color || '#888'};font-weight:${color ? '700' : '400'}">${esc(c.mall_name)}</td>
         <td style="text-align:right">${priceHtml}</td>
       </tr>`;
     }).join('');
