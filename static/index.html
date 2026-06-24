@@ -510,8 +510,8 @@ async function loadRankings() {
       prods[r.product_name].keywords.push(r);
     });
 
-    // 가나다 내림순 정렬
-    const sortedStores = Object.entries(byStore).sort(([a], [b]) => b.localeCompare(a, 'ko'));
+    // 가나다 오름순 정렬
+    const sortedStores = Object.entries(byStore).sort(([a], [b]) => a.localeCompare(b, 'ko'));
 
     container.innerHTML = sortedStores.map(([storeName, products], si) => `
       <div class="acc-store">
@@ -521,7 +521,7 @@ async function loadRankings() {
           <span style="margin-left:auto;font-size:.75rem;color:#888;font-weight:400">${Object.keys(products).length}개 제품</span>
         </div>
         <div class="acc-store-body" id="body-rk-s${si}">
-          ${Object.entries(products).sort(([a], [b]) => b.localeCompare(a, 'ko')).map(([prodName, prod], pi) => {
+          ${Object.entries(products).sort(([a], [b]) => a.localeCompare(b, 'ko')).map(([prodName, prod], pi) => {
             const bestRank = prod.keywords.reduce((b, k) => k.rank != null && (b == null || k.rank < b) ? k.rank : b, null);
             const summary = bestRank != null ? `최고 ${bestRank}위` : '100위 밖';
             return `
@@ -532,7 +532,7 @@ async function loadRankings() {
                   <span style="margin-left:auto;font-size:.75rem;color:#888;font-weight:400">${prod.keywords.length}개 키워드 · ${summary}</span>
                 </div>
                 <div class="acc-kw-body" id="body-rk-p${si}-${pi}">
-                  ${[...prod.keywords].sort((a, b) => b.keyword.localeCompare(a.keyword, 'ko')).map(r => `
+                  ${[...prod.keywords].sort((a, b) => a.keyword.localeCompare(b.keyword, 'ko')).map(r => `
                     <div class="rank-kw-row">
                       <span class="kw-tag">${escH(r.keyword)}</span>
                       <span class="rank-curr">${r.rank != null ? r.rank+'위' : '100위 밖'}</span>
@@ -581,11 +581,11 @@ async function loadTrends() {
       prods[item.product_name].push({ ...item, _idx: idx });
     });
 
-    // 가나다 내림순 정렬 (스토어명, 제품명 모두)
-    const sortedStores = Object.entries(byStore).sort(([a], [b]) => b.localeCompare(a, 'ko'));
+    // 가나다 오름순 정렬 (스토어명, 제품명 모두)
+    const sortedStores = Object.entries(byStore).sort(([a], [b]) => a.localeCompare(b, 'ko'));
 
     container.innerHTML = sortedStores.map(([storeName, products], si) => {
-      const sortedProds = Object.entries(products).sort(([a], [b]) => b.localeCompare(a, 'ko'));
+      const sortedProds = Object.entries(products).sort(([a], [b]) => a.localeCompare(b, 'ko'));
       return `
       <div class="acc-store">
         <div class="acc-store-header" onclick="toggleAcc('s${si}')">
@@ -782,7 +782,7 @@ async function loadKeywordTop10() {
       groups[r.keyword].items.push(r);
     });
 
-    container.innerHTML = Object.entries(groups).sort(([a], [b]) => b.localeCompare(a, 'ko')).map(([kw, g], idx) => `
+    container.innerHTML = Object.entries(groups).sort(([a], [b]) => a.localeCompare(b, 'ko')).map(([kw, g], idx) => `
       <div class="acc-kw" style="margin-bottom:8px">
         <div class="acc-kw-header" onclick="toggleAcc('top10-${idx}')">
           <span class="acc-arrow" id="arr-top10-${idx}">▶</span>
@@ -915,18 +915,18 @@ async function loadProducts() {
     return;
   }
 
-  // 스토어별 그룹핑 후 가나다 내림순 정렬
+  // 스토어별 그룹핑 후 가나다 오름순 정렬
   const byStore = {};
   data.forEach(p => {
     if (!byStore[p.store_name]) byStore[p.store_name] = [];
     byStore[p.store_name].push(p);
   });
 
-  const sortedStores = Object.entries(byStore).sort(([a], [b]) => b.localeCompare(a, 'ko'));
+  const sortedStores = Object.entries(byStore).sort(([a], [b]) => a.localeCompare(b, 'ko'));
 
   container.innerHTML = sortedStores.map(([storeName, products], si) => {
     const sorted = [...products].sort((a, b) =>
-      (b.product_name || '').localeCompare(a.product_name || '', 'ko')
+      (a.product_name || '').localeCompare(b.product_name || '', 'ko')
     );
     return `
     <div class="acc-store">
