@@ -197,7 +197,9 @@ def get_title_history(product_id: int, db: Session = Depends(get_db)):
 
 @router.get("/rank-changes")
 def get_rank_changes(threshold: int = 5, db: Session = Depends(get_db)):
-    """최근 수집에서 threshold 이상 순위 급변동 항목 반환."""
+    """최근 24시간 이내 수집분 중 threshold 이상 순위 급변동 항목 반환."""
+    from datetime import timedelta
+    cutoff = datetime.now(timezone.utc) - timedelta(hours=24)
     products = db.query(TrackedProduct).filter(TrackedProduct.is_active == True).all()  # noqa: E712
     result = []
     for product in products:
@@ -215,6 +217,10 @@ def get_rank_changes(threshold: int = 5, db: Session = Depends(get_db)):
             if len(latest_two) < 2 or latest_two[0].rank is None or latest_two[1].rank is None:
                 continue
             curr, prev = latest_two[0], latest_two[1]
+            # 가장 최근 수집이 24시간을 초과하면 배너에 표시하지 않음
+            collected_utc = curr.collected_at.replace(tzinfo=timezone.utc) if curr.collected_at.tzinfo is None else curr.collected_at
+            if collected_utc < cutoff:
+                continue
             diff = prev.rank - curr.rank  # 양수=상승, 음수=하락
             if abs(diff) >= threshold:
                 result.append({
