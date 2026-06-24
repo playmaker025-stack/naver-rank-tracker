@@ -113,6 +113,30 @@ def add_product(body: ProductAdd, db: Session = Depends(get_db)):
     )
 
 
+class ProductNameUpdate(BaseModel):
+    product_name: str
+
+
+@router.patch("/{product_id}/name", response_model=ProductOut)
+def update_product_name(product_id: int, body: ProductNameUpdate, db: Session = Depends(get_db)):
+    product = db.get(TrackedProduct, product_id)
+    if not product:
+        raise HTTPException(status_code=404, detail="Product not found")
+    product.product_name = body.product_name.strip()
+    db.commit()
+    db.refresh(product)
+    return ProductOut(
+        id=product.id,
+        store_id=product.store_id,
+        store_name=product.store.name,
+        naver_product_id=product.naver_product_id,
+        product_name=product.product_name,
+        product_url=product.product_url,
+        is_active=product.is_active,
+        keywords=[pk.keyword for pk in product.keywords],
+    )
+
+
 @router.patch("/{product_id}/toggle", response_model=ProductOut)
 def toggle_product(product_id: int, db: Session = Depends(get_db)):
     product = db.get(TrackedProduct, product_id)
