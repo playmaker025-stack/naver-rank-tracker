@@ -299,6 +299,7 @@
     .kw-name { flex: 1; font-size: .82rem; font-weight: 600; color: #222; }
     .kw-rank-badge { font-size: .8rem; white-space: nowrap; min-width: 58px; text-align: right; }
     .kw-spark { flex-shrink: 0; line-height: 0; overflow: visible; }
+    .kw-spark canvas { display: block; }
     .report-btn {
       flex-shrink: 0; font-size: .72rem; color: #03a84e; border: 1px solid #03a84e;
       border-radius: 6px; padding: 3px 9px; text-decoration: none; white-space: nowrap;
@@ -668,6 +669,9 @@ function initSparkline(idx) {
   const ranks  = item.history.map(h => h.rank);
   const labels = item.history.map(h => fmtDate(h.collected_at));
 
+  // 캔버스가 DOM에 완전히 반영된 다음 프레임에 차트 생성
+  requestAnimationFrame(() => {
+  if (_trendCharts[idx]) return;
   _trendCharts[idx] = new Chart(ctx, {
     type: 'line',
     data: {
@@ -701,7 +705,8 @@ function initSparkline(idx) {
         }
       }
     }
-  });
+  }); // Chart
+  }); // requestAnimationFrame
 }
 
 /* ════════════════════════════════
