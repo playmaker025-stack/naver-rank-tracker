@@ -991,11 +991,15 @@ async function loadProducts() {
       <div class="acc-store-body" id="body-pm-s${si}">
         ${sorted.map(p => `
           <div style="border:1px solid #eee;border-radius:8px;padding:14px 16px;margin-bottom:8px;background:#fff">
-            <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;flex-wrap:wrap">
+            <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;flex-wrap:wrap">
               <a href="${p.product_url}" target="_blank" style="flex:1;min-width:120px;font-size:.88rem;font-weight:700;color:#1a1a2e;text-decoration:none">${escH(p.product_name || p.naver_product_id)}</a>
               <span class="badge ${p.is_active ? 'badge-on' : 'badge-off'}">${p.is_active ? '추적중' : '중지'}</span>
               <button class="btn btn-ghost btn-sm" onclick="toggleProduct(${p.id})">${p.is_active ? '중지' : '재개'}</button>
               <button class="btn btn-danger btn-sm" onclick="deleteProduct(${p.id})">삭제</button>
+            </div>
+            <div style="margin-bottom:8px;display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+              <code style="font-size:.7rem;background:#f5f5f5;color:#666;padding:2px 7px;border-radius:4px;user-select:all" title="네이버 상품 ID (매칭 기준)">ID: ${escH(p.naver_product_id)}</code>
+              <button class="btn btn-ghost btn-sm" style="font-size:.68rem;padding:2px 8px" onclick="debugMatch(${p.id},'${escQ(p.naver_product_id)}','${escQ(p.product_name)}',${JSON.stringify(p.keywords)})">🔍 매칭 확인</button>
             </div>
             <div style="font-size:.73rem;color:#aaa;margin-bottom:5px;font-weight:600">키워드</div>
             ${renderKwTags(p)}
@@ -1217,6 +1221,32 @@ async function openChart(productId, keyword, productName) {
 function closeChart() {
   document.getElementById('chartModal').classList.remove('open');
   if (chartInstance) { chartInstance.destroy(); chartInstance = null; }
+}
+
+/* ════════════════════════════════
+   매칭 디버그
+════════════════════════════════ */
+async function debugMatch(productId, pid, productName, keywords) {
+  if (!keywords.length) { toast('키워드가 없습니다.'); return; }
+  const kw = keywords[0];
+  toast(`"${kw}" 키워드로 매칭 확인 중…`);
+  try {
+    const res = await fetch(`${API}/rankings/debug/search?keyword=${encodeURIComponent(kw)}`);
+    const data = await res.json();
+    const matched = data.items.filter(i => i.matched === productName);
+    const pidHits = data.items.filter(i => (i.link || '').includes(pid));
+
+    let msg = `[${productName}]\nID: ${pid}\n키워드: "${kw}"\n\n`;
+    if (matched.length) {
+      msg += `✅ 매칭된 결과: ${matched.map(i => `${i.rank}위 (${i.mallName})`).join(', ')}\n`;
+    } else {
+      msg += `❌ 검색 결과 100개 중 매칭 없음\n`;
+    }
+    if (pidHits.length) {
+      msg += `🔗 ID가 포함된 링크: ${pidHits.map(i => `${i.rank}위`).join(', ')}`;
+    }
+    alert(msg);
+  } catch { toast('디버그 조회 실패'); }
 }
 
 /* ════════════════════════════════

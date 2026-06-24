@@ -268,7 +268,7 @@ def debug_search(keyword: str, db: Session = Depends(get_db)):
             "productId": item.get("productId"),
             "title": re.sub(r"<[^>]+>", "", item.get("title", "")),
             "mallName": item.get("mallName"),
-            "link": item.get("link", "")[:80],
+            "link": item.get("link", ""),
             "matched": matched_product,
         })
 
