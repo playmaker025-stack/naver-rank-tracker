@@ -64,7 +64,7 @@ def get_product_rankings(db: Session = Depends(get_db)):
                     keyword=pk.keyword,
                     rank=curr.rank,
                     prev_rank=prev_rank,
-                    collected_at=curr.collected_at.isoformat(),
+                    collected_at=curr.collected_at.isoformat() + "Z",
                 )
             )
     return result
@@ -90,7 +90,7 @@ def get_all_rankings_history(limit: int = 60, db: Session = Depends(get_db)):
                     "product_name": product.product_name,
                     "store_name": product.store.name,
                     "keyword": pk.keyword,
-                    "history": [{"rank": r.rank, "collected_at": r.collected_at.isoformat()} for r in reversed(rows)],
+                    "history": [{"rank": r.rank, "collected_at": r.collected_at.isoformat() + "Z"} for r in reversed(rows)],
                 })
     return result
 
@@ -107,7 +107,7 @@ def get_product_rank_history(product_id: int, keyword: str, limit: int = 30, db:
         .limit(limit)
         .all()
     )
-    return [{"rank": r.rank, "collected_at": r.collected_at.isoformat()} for r in reversed(rows)]
+    return [{"rank": r.rank, "collected_at": r.collected_at.isoformat() + "Z"} for r in reversed(rows)]
 
 
 @router.get("/keywords", response_model=list[KeywordTop10Out])
@@ -166,7 +166,7 @@ def get_keyword_top10(db: Session = Depends(get_db)):
                     mall_name=row.mall_name,
                     product_url=row.product_url,
                     price=row.price,
-                    collected_at=row.collected_at.isoformat(),
+                    collected_at=row.collected_at.isoformat() + "Z",
                     prev_rank=prev.get("rank"),
                     prev_price=prev.get("price"),
                     our_store_name=our_mall_map.get(row.mall_name.replace(' ', '').lower()),
@@ -189,7 +189,7 @@ def get_title_history(product_id: int, db: Session = Depends(get_db)):
         {
             "old_title": r.old_title,
             "new_title": r.new_title,
-            "changed_at": r.changed_at.isoformat(),
+            "changed_at": r.changed_at.isoformat() + "Z",
         }
         for r in rows
     ]
@@ -230,7 +230,7 @@ def get_rank_changes(threshold: int = 5, db: Session = Depends(get_db)):
                     "prev_rank": prev.rank,
                     "diff": diff,
                     "type": "surge" if diff > 0 else "drop",
-                    "collected_at": curr.collected_at.isoformat(),
+                    "collected_at": curr.collected_at.isoformat() + "Z",
                 })
     result.sort(key=lambda x: -abs(x["diff"]))
     return result

@@ -1244,8 +1244,7 @@ async function loadRankAlerts() {
     cards.innerHTML = data.map(d => {
       const isSurge = d.type === 'surge';
       const sign    = isSurge ? `▲${Math.abs(d.diff)}계단` : `▼${Math.abs(d.diff)}계단`;
-      const dt      = new Date(d.collected_at);
-      const time    = `${dt.getMonth()+1}/${dt.getDate()} ${String(dt.getHours()).padStart(2,'0')}:${String(dt.getMinutes()).padStart(2,'0')}`;
+      const time    = fmtDate(d.collected_at);
       return `
         <div class="alert-card ${isSurge ? '' : 'drop'}">
           <div class="alert-card-time">${time}</div>
