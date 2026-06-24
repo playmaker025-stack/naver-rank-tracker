@@ -389,14 +389,7 @@
       <input id="productName" placeholder="상품명 (비워두면 자동 조회)" />
       <button class="btn btn-primary" onclick="addProduct()">추가</button>
     </div>
-    <div class="table-wrap">
-      <table id="productsTable">
-        <thead>
-          <tr><th>스토어</th><th>상품명</th><th>키워드</th><th>상태</th><th>관리</th></tr>
-        </thead>
-        <tbody id="productsTbody"><tr><td colspan="5" class="empty-msg">로딩 중…</td></tr></tbody>
-      </table>
-    </div>
+    <div id="productsContainer"><p class="empty-msg">로딩 중…</p></div>
   </div>
 
   <!-- ─── 스토어 관리 ─── -->
@@ -575,15 +568,20 @@ async function loadTrends() {
       prods[item.product_name].push({ ...item, _idx: idx });
     });
 
-    container.innerHTML = Object.entries(byStore).map(([storeName, products], si) => `
+    // 가나다 내림순 정렬 (스토어명, 제품명 모두)
+    const sortedStores = Object.entries(byStore).sort(([a], [b]) => b.localeCompare(a, 'ko'));
+
+    container.innerHTML = sortedStores.map(([storeName, products], si) => {
+      const sortedProds = Object.entries(products).sort(([a], [b]) => b.localeCompare(a, 'ko'));
+      return `
       <div class="acc-store">
         <div class="acc-store-header" onclick="toggleAcc('s${si}')">
           <span class="acc-arrow" id="arr-s${si}">▶</span>
           🏪 ${escH(storeName)}
-          <span style="margin-left:auto;font-size:.75rem;color:#888;font-weight:400">${Object.keys(products).length}개 제품</span>
+          <span style="margin-left:auto;font-size:.75rem;color:#888;font-weight:400">${sortedProds.length}개 제품</span>
         </div>
         <div class="acc-store-body" id="body-s${si}">
-          ${Object.entries(products).map(([prodName, kwItems], pi) => {
+          ${sortedProds.map(([prodName, kwItems], pi) => {
             const kwIndices = kwItems.map(i => i._idx).join(',');
             const prodId = kwItems[0].product_id;
             return `
@@ -613,7 +611,8 @@ async function loadTrends() {
               </div>`;
           }).join('')}
         </div>
-      </div>`).join('');
+      </div>`;
+    }).join('');
 
   } catch {
     container.innerHTML = '<p class="empty-msg">데이터 로드 실패</p>';
@@ -860,25 +859,53 @@ function escQ(s) { return String(s).replace(/\\/g,'\\\\').replace(/'/g,"\\'"); }
 
 async function loadProducts() {
   await loadStores();
-  const tbody = document.getElementById('productsTbody');
+  const container = document.getElementById('productsContainer');
   const res = await fetch(`${API}/products`);
   const data = await res.json();
 
   _productKeywords = {};
   data.forEach(p => { _productKeywords[p.id] = [...p.keywords]; });
 
-  if (!data.length) { tbody.innerHTML = '<tr><td colspan="5" class="empty-msg">추적 중인 상품이 없습니다.</td></tr>'; return; }
-  tbody.innerHTML = data.map(p => `
-    <tr>
-      <td>${escH(p.store_name)}</td>
-      <td><a href="${p.product_url}" target="_blank" style="color:#222;text-decoration:none">${escH(p.product_name || p.naver_product_id)}</a></td>
-      <td>${renderKwTags(p)}</td>
-      <td><span class="badge ${p.is_active ? 'badge-on' : 'badge-off'}">${p.is_active ? '추적중' : '중지'}</span></td>
-      <td style="display:flex;gap:6px;flex-wrap:wrap">
-        <button class="btn btn-ghost btn-sm" onclick="toggleProduct(${p.id})">${p.is_active ? '중지' : '재개'}</button>
-        <button class="btn btn-danger btn-sm" onclick="deleteProduct(${p.id})">삭제</button>
-      </td>
-    </tr>`).join('');
+  if (!data.length) {
+    container.innerHTML = '<p class="empty-msg">추적 중인 상품이 없습니다.</p>';
+    return;
+  }
+
+  // 스토어별 그룹핑 후 가나다 내림순 정렬
+  const byStore = {};
+  data.forEach(p => {
+    if (!byStore[p.store_name]) byStore[p.store_name] = [];
+    byStore[p.store_name].push(p);
+  });
+
+  const sortedStores = Object.entries(byStore).sort(([a], [b]) => b.localeCompare(a, 'ko'));
+
+  container.innerHTML = sortedStores.map(([storeName, products], si) => {
+    const sorted = [...products].sort((a, b) =>
+      (b.product_name || '').localeCompare(a.product_name || '', 'ko')
+    );
+    return `
+    <div class="acc-store">
+      <div class="acc-store-header" onclick="toggleAcc('pm-s${si}')">
+        <span class="acc-arrow" id="arr-pm-s${si}">▶</span>
+        🏪 ${escH(storeName)}
+        <span style="margin-left:auto;font-size:.75rem;color:#888;font-weight:400">${sorted.length}개 상품</span>
+      </div>
+      <div class="acc-store-body" id="body-pm-s${si}">
+        ${sorted.map(p => `
+          <div style="border:1px solid #eee;border-radius:8px;padding:14px 16px;margin-bottom:8px;background:#fff">
+            <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;flex-wrap:wrap">
+              <a href="${p.product_url}" target="_blank" style="flex:1;min-width:120px;font-size:.88rem;font-weight:700;color:#1a1a2e;text-decoration:none">${escH(p.product_name || p.naver_product_id)}</a>
+              <span class="badge ${p.is_active ? 'badge-on' : 'badge-off'}">${p.is_active ? '추적중' : '중지'}</span>
+              <button class="btn btn-ghost btn-sm" onclick="toggleProduct(${p.id})">${p.is_active ? '중지' : '재개'}</button>
+              <button class="btn btn-danger btn-sm" onclick="deleteProduct(${p.id})">삭제</button>
+            </div>
+            <div style="font-size:.73rem;color:#aaa;margin-bottom:5px;font-weight:600">키워드</div>
+            ${renderKwTags(p)}
+          </div>`).join('')}
+      </div>
+    </div>`;
+  }).join('');
 }
 
 function showKwInput(productId) {
