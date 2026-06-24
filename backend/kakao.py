@@ -87,18 +87,19 @@ def send_rank_alert(alerts: list[dict]) -> None:
     if not alerts:
         return
 
-    lines = ["[네이버 랭킹 알림] 순위 변동"]
+    surges = [a for a in alerts if a.get("prev") is None or (a.get("curr") or 999) < (a.get("prev") or 999)]
+    drops  = [a for a in alerts if a.get("prev") is not None and (a.get("curr") or 999) > (a.get("prev") or 999)]
+    header = "🚀 급상승" if surges and not drops else ("📉 급하락" if drops and not surges else "⚡ 순위 급변동")
+    lines = [f"[네이버 랭킹] {header}"]
     for a in alerts[:10]:
         prev = a.get("prev")
         curr = a.get("curr")
         if prev is None:
             arrow, change = "🆕 신규진입", f"→ {curr}위"
-        elif curr is None:
-            arrow, change = "❌ 이탈", f"{prev}위 → 100위 밖"
         elif curr < prev:
-            arrow, change = f"▲ {prev - curr}", f"{prev}위 → {curr}위"
+            arrow, change = f"🚀 ▲{prev - curr}계단", f"{prev}위 → {curr}위"
         else:
-            arrow, change = f"▼ {curr - prev}", f"{prev}위 → {curr}위"
+            arrow, change = f"📉 ▼{curr - prev}계단", f"{prev}위 → {curr}위"
         lines.append(f"{arrow} {a['product'][:20]} / {a['keyword']}: {change}")
 
     message = "\n".join(lines)

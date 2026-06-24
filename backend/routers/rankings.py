@@ -195,6 +195,41 @@ def get_title_history(product_id: int, db: Session = Depends(get_db)):
     ]
 
 
+@router.get("/rank-changes")
+def get_rank_changes(threshold: int = 5, db: Session = Depends(get_db)):
+    """최근 수집에서 threshold 이상 순위 급변동 항목 반환."""
+    products = db.query(TrackedProduct).filter(TrackedProduct.is_active == True).all()  # noqa: E712
+    result = []
+    for product in products:
+        for pk in product.keywords:
+            latest_two = (
+                db.query(ProductRankHistory)
+                .filter(
+                    ProductRankHistory.product_id == product.id,
+                    ProductRankHistory.keyword == pk.keyword,
+                )
+                .order_by(desc(ProductRankHistory.collected_at))
+                .limit(2)
+                .all()
+            )
+            if len(latest_two) < 2 or latest_two[0].rank is None or latest_two[1].rank is None:
+                continue
+            curr, prev = latest_two[0], latest_two[1]
+            diff = prev.rank - curr.rank  # 양수=상승, 음수=하락
+            if abs(diff) >= threshold:
+                result.append({
+                    "product_name": product.product_name,
+                    "keyword": pk.keyword,
+                    "curr_rank": curr.rank,
+                    "prev_rank": prev.rank,
+                    "diff": diff,
+                    "type": "surge" if diff > 0 else "drop",
+                    "collected_at": curr.collected_at.isoformat(),
+                })
+    result.sort(key=lambda x: -abs(x["diff"]))
+    return result
+
+
 @router.get("/debug/env")
 def debug_env():
     """환경변수 주입 확인용 (키 이름만 반환)."""

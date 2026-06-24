@@ -306,6 +306,64 @@
     }
     .report-btn:hover { background: #f0fdf4; }
 
+    /* ── 급변동 알림 배너 ── */
+    #rankAlertBanner {
+      background: linear-gradient(135deg, #ecfdf5 0%, #f0fdf4 100%);
+      border-bottom: 2px solid #bbf7d0;
+      padding: 10px 24px;
+      text-align: center;
+    }
+    #rankAlertBanner.has-drop {
+      background: linear-gradient(135deg, #ecfdf5 0%, #fff1f2 100%);
+      border-bottom-color: #fecaca;
+    }
+    .alert-banner-inner {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      justify-content: center;
+      flex-wrap: wrap;
+    }
+    .alert-banner-label {
+      font-size: .72rem;
+      font-weight: 800;
+      letter-spacing: .04em;
+      color: #15803d;
+      white-space: nowrap;
+      padding: 3px 10px;
+      background: #dcfce7;
+      border-radius: 20px;
+    }
+    .alert-cards {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      justify-content: center;
+      align-items: center;
+    }
+    .alert-card {
+      display: flex;
+      flex-direction: column;
+      gap: 1px;
+      background: #fff;
+      border: 1.5px solid #bbf7d0;
+      border-radius: 10px;
+      padding: 7px 13px;
+      font-size: .75rem;
+      min-width: 150px;
+      text-align: left;
+      box-shadow: 0 1px 4px rgba(0,0,0,.05);
+    }
+    .alert-card.drop {
+      border-color: #fca5a5;
+    }
+    .alert-card-time  { color: #9ca3af; font-size: .68rem; }
+    .alert-card-prod  { font-weight: 700; color: #1a1a2e; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 140px; }
+    .alert-card-rank  { display: flex; align-items: center; gap: 4px; }
+    .alert-card-kw    { color: #6b7280; font-size: .7rem; }
+    .alert-card-change.surge { color: #16a34a; font-weight: 800; }
+    .alert-card-change.drop  { color: #dc2626; font-weight: 800; }
+
     /* ── 랭킹 현황 키워드 행 ── */
     .rank-kw-row {
       display: flex; align-items: center; gap: 10px;
@@ -327,6 +385,14 @@
   <button class="collect-btn" id="collectBtn" onclick="manualCollect()">지금 수집</button>
 </header>
 
+
+<!-- ─── 급변동 알림 배너 ─── -->
+<div id="rankAlertBanner" style="display:none">
+  <div class="alert-banner-inner">
+    <span class="alert-banner-label" id="alertBannerLabel">⚡ 순위 급변동</span>
+    <div class="alert-cards" id="alertCards"></div>
+  </div>
+</div>
 
 <div class="tabs">
   <button class="tab active" onclick="switchTab('rankings')">📊 랭킹 현황</button>
@@ -1104,6 +1170,7 @@ async function manualCollect() {
     const data = await res.json();
     toast(`수집 완료! 상품 ${data.products}건 / 키워드 ${data.keywords}건 (알림 ${data.alerts_sent}건)`);
     loadRankings();
+    loadRankAlerts();
   } catch { toast('수집 실패'); }
   finally { btn.disabled = false; btn.textContent = '지금 수집'; }
 }
@@ -1152,8 +1219,50 @@ function closeChart() {
   if (chartInstance) { chartInstance.destroy(); chartInstance = null; }
 }
 
+/* ════════════════════════════════
+   급변동 알림 배너
+════════════════════════════════ */
+async function loadRankAlerts() {
+  try {
+    const res = await fetch(`${API}/rankings/rank-changes`);
+    const data = await res.json();
+    const banner = document.getElementById('rankAlertBanner');
+    const cards  = document.getElementById('alertCards');
+    const label  = document.getElementById('alertBannerLabel');
+
+    if (!data.length) { banner.style.display = 'none'; return; }
+
+    const hasDrop   = data.some(d => d.type === 'drop');
+    const hasSurge  = data.some(d => d.type === 'surge');
+    banner.style.display = '';
+    banner.classList.toggle('has-drop', hasDrop && !hasSurge);
+
+    if (hasSurge && hasDrop) { label.textContent = '⚡ 순위 급변동'; }
+    else if (hasSurge)        { label.textContent = '🚀 순위 급상승'; }
+    else                       { label.textContent = '📉 순위 급하락'; }
+
+    cards.innerHTML = data.map(d => {
+      const isSurge = d.type === 'surge';
+      const sign    = isSurge ? `▲${Math.abs(d.diff)}계단` : `▼${Math.abs(d.diff)}계단`;
+      const dt      = new Date(d.collected_at);
+      const time    = `${dt.getMonth()+1}/${dt.getDate()} ${String(dt.getHours()).padStart(2,'0')}:${String(dt.getMinutes()).padStart(2,'0')}`;
+      return `
+        <div class="alert-card ${isSurge ? '' : 'drop'}">
+          <div class="alert-card-time">${time}</div>
+          <div class="alert-card-prod" title="${escH(d.product_name)}">${escH(d.product_name)}</div>
+          <div class="alert-card-kw">${escH(d.keyword)}</div>
+          <div class="alert-card-rank">
+            <span class="alert-card-change ${isSurge ? 'surge' : 'drop'}">${sign}</span>
+            <span style="color:#9ca3af;font-size:.7rem">${d.prev_rank}위 → ${d.curr_rank}위</span>
+          </div>
+        </div>`;
+    }).join('');
+  } catch { /* 배너 로드 실패는 조용히 무시 */ }
+}
+
 /* ── 초기 로드 ── */
 loadRankings();
+loadRankAlerts();
 loadWatchKeywordChips();
 </script>
 </body>

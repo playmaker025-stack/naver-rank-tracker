@@ -40,7 +40,11 @@ def _run_collection():
                 )
                 curr_rank = latest.rank if latest else None
                 prev_rank = prev_ranks.get((p.id, pk.keyword))
-                if curr_rank != prev_rank:
+                is_notable = (
+                    (prev_rank is None and curr_rank is not None)  # 신규 진입
+                    or (prev_rank is not None and curr_rank is not None and abs(prev_rank - curr_rank) >= 5)  # 5위 이상 급변동
+                )
+                if is_notable:
                     alerts.append({"product": p.product_name, "keyword": pk.keyword, "prev": prev_rank, "curr": curr_rank})
 
         if alerts:
