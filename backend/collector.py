@@ -111,23 +111,21 @@ def _item_matches_product(item: dict, product: "TrackedProduct") -> bool:
     """API 결과 한 건이 추적 상품과 일치하는지 판별한다.
 
     Naver Shopping API의 productId는 카탈로그 ID라서 SmartStore URL의
-    product ID와 다를 수 있다. link URL 포함 여부와 mallName으로 보완한다.
+    product ID와 다를 수 있다. link URL에서 숫자 경계 기반으로 정확히 매칭한다.
     """
     pid = product.naver_product_id
 
-    # 1) productId 직접 일치
+    # 1) 카탈로그 productId 직접 일치
     if item.get("productId") == pid:
         return True
 
-    # 2) link URL 안에 상품 ID 포함 (SmartStore URL 형태 매칭)
-    link = item.get("link", "")
-    if pid and len(pid) >= 8 and pid in link:
-        return True
-
-    # 3) mallName 일치 + link 안에 ID 포함
-    mall_name = product.store.mall_name if product.store else ""
-    if mall_name and item.get("mallName") == mall_name and pid in link:
-        return True
+    # 2) link URL에 상품 ID가 독립된 숫자 세그먼트로 포함 (부분 매칭 방지)
+    # (?<!\d)pid(?!\d) → 앞뒤에 다른 숫자가 붙으면 매칭 안 됨
+    # 예: pid="12345678"이 "123456789" 링크에 오탐되지 않음
+    if pid and len(pid) >= 8:
+        link = item.get("link", "")
+        if re.search(rf"(?<!\d){re.escape(pid)}(?!\d)", link):
+            return True
 
     return False
 
