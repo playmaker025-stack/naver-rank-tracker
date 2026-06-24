@@ -436,6 +436,7 @@
 const API = '/api';
 let chartInstance = null;
 let _productKeywords = {};
+let _productNames = {};
 
 /* ── 탭 전환 ── */
 function switchTab(name) {
@@ -890,7 +891,11 @@ async function loadProducts() {
   const data = await res.json();
 
   _productKeywords = {};
-  data.forEach(p => { _productKeywords[p.id] = [...p.keywords]; });
+  _productNames = {};
+  data.forEach(p => {
+    _productKeywords[p.id] = [...p.keywords];
+    _productNames[p.id] = p.product_name || p.naver_product_id || '';
+  });
 
   if (!data.length) {
     container.innerHTML = '<p class="empty-msg">추적 중인 상품이 없습니다.</p>';
@@ -968,10 +973,15 @@ async function updateProductKeywords(productId, keywords) {
   if (res.ok) {
     _productKeywords[productId] = keywords;
     toast('키워드가 업데이트되었습니다.');
-    // 현재 활성 탭에 맞게 새로고침
+    // 키워드 태그 영역만 교체 (아코디언 상태 유지)
+    const tagsDiv = document.getElementById(`kwtags-${productId}`);
+    if (tagsDiv) {
+      const fakeP = { id: productId, product_name: _productNames[productId] || '', keywords };
+      tagsDiv.outerHTML = renderKwTags(fakeP);
+    }
+    // 키워드 탭도 열려 있으면 동기화
     const activePanel = document.querySelector('.panel.active');
     if (activePanel?.id === 'tab-watchKeywords') loadProductKeywords();
-    else loadProducts();
   } else toast('키워드 업데이트 실패');
 }
 
