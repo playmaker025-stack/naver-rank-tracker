@@ -257,7 +257,6 @@
       border: 1.5px solid #e0e0e0;
       border-radius: 12px;
       margin-bottom: 10px;
-      overflow: hidden;
     }
     .acc-store-header {
       display: flex; align-items: center; gap: 10px;
@@ -299,7 +298,18 @@
     .kw-row:last-child { border-bottom: none; }
     .kw-name { flex: 1; font-size: .82rem; font-weight: 600; color: #222; }
     .kw-rank-badge { font-size: .8rem; white-space: nowrap; min-width: 58px; text-align: right; }
-    .kw-spark { flex-shrink: 0; line-height: 0; }
+    .kw-spark { flex-shrink: 0; line-height: 0; position: relative; }
+    .spark-tip {
+      position: absolute; bottom: calc(100% + 5px); left: 50%;
+      transform: translateX(-50%);
+      background: #1a1a2e; color: #fff;
+      padding: 4px 9px; border-radius: 7px;
+      font-size: .71rem; white-space: nowrap;
+      pointer-events: none; z-index: 200;
+      opacity: 0; transition: opacity .1s;
+      line-height: 1.5;
+    }
+    .spark-tip.show { opacity: 1; }
     .report-btn {
       flex-shrink: 0; font-size: .72rem; color: #03a84e; border: 1px solid #03a84e;
       border-radius: 6px; padding: 3px 9px; text-decoration: none; white-space: nowrap;
@@ -665,6 +675,12 @@ function initSparkline(idx) {
   if (!ctx) return;
   const ranks  = item.history.map(h => h.rank);
   const labels = item.history.map(h => fmtDate(h.collected_at));
+
+  // DOM 툴팁 엘리먼트 (캔버스 밖으로 표시 가능)
+  const tipEl = document.createElement('div');
+  tipEl.className = 'spark-tip';
+  ctx.parentNode.appendChild(tipEl);
+
   _trendCharts[idx] = new Chart(ctx, {
     type: 'line',
     data: {
@@ -674,6 +690,7 @@ function initSparkline(idx) {
         borderColor: '#03c75a',
         backgroundColor: 'rgba(3,199,90,.12)',
         pointRadius: 0,
+        pointHoverRadius: 3,
         borderWidth: 1.5,
         tension: 0.3,
         fill: true,
@@ -682,16 +699,29 @@ function initSparkline(idx) {
     options: {
       responsive: false,
       animation: false,
+      interaction: { mode: 'index', intersect: false },
       scales: {
         x: { display: false },
         y: { display: false, reverse: true }
       },
       plugins: {
         legend: { display: false },
-        tooltip: { callbacks: { label: c => c.raw != null ? `${c.raw}위` : '100위 밖' } }
+        tooltip: {
+          enabled: false,
+          external({ tooltip }) {
+            if (!tooltip.dataPoints?.length) { tipEl.classList.remove('show'); return; }
+            const dp = tooltip.dataPoints[0];
+            const rank = dp.raw;
+            tipEl.innerHTML = `${dp.label}<br><b>${rank != null ? rank + '위' : '100위 밖'}</b>`;
+            tipEl.classList.add('show');
+          }
+        }
       }
     }
   });
+
+  // 마우스가 캔버스 밖으로 나가면 툴팁 숨김
+  ctx.addEventListener('mouseleave', () => tipEl.classList.remove('show'));
 }
 
 /* ════════════════════════════════
