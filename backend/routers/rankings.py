@@ -308,6 +308,35 @@ def debug_search(keyword: str, db: Session = Depends(get_db)):
 
 
 
+@router.post("/collect/product/{product_id}")
+def collect_single_product(product_id: int, db: Session = Depends(get_db)):
+    """특정 상품의 키워드만 즉시 수집 (텔레그램 알림 없음)."""
+    from backend.collector import _search_keyword
+    product = db.get(TrackedProduct, product_id)
+    if not product or not product.is_active:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=404, detail="Product not found")
+
+    now = datetime.now(timezone.utc)
+    saved = 0
+    for pk in product.keywords:
+        items = _search_keyword(pk.keyword)
+        rank = None
+        for i, item in enumerate(items, start=1):
+            if _item_matches_product(item, product):
+                rank = i
+                break
+        db.add(ProductRankHistory(
+            product_id=product.id,
+            keyword=pk.keyword,
+            rank=rank,
+            collected_at=now,
+        ))
+        saved += 1
+    db.commit()
+    return {"product_id": product_id, "product_name": product.product_name, "keywords_collected": saved}
+
+
 @router.post("/collect")
 def manual_collect(db: Session = Depends(get_db)):
     """수동 수집 트리거."""

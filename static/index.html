@@ -688,6 +688,9 @@ async function loadTrends() {
                 <div class="acc-kw-header" onclick="toggleProductAcc('pp${si}-${pi}',[${kwIndices}],${prodId})">
                   <span class="acc-arrow" id="arr-pp${si}-${pi}">▶</span>
                   ${escH(prodName)}
+                  <button id="collectbtn-${prodId}" class="btn btn-ghost btn-sm"
+                    style="margin-left:10px;font-size:.7rem;padding:2px 9px;flex-shrink:0"
+                    onclick="collectProduct(${prodId},event)">↺ 수집</button>
                   <span style="margin-left:auto;font-size:.75rem;color:#888;font-weight:400">${kwItems.length}개 키워드</span>
                 </div>
                 <div class="acc-kw-body" id="body-pp${si}-${pi}">
@@ -721,6 +724,23 @@ async function loadTrends() {
 function toggleAcc(id) {
   document.getElementById(`body-${id}`).classList.toggle('open');
   document.getElementById(`arr-${id}`).classList.toggle('open');
+}
+
+async function collectProduct(productId, event) {
+  event.stopPropagation();
+  const btn = document.getElementById(`collectbtn-${productId}`);
+  btn.disabled = true;
+  btn.textContent = '수집중…';
+  try {
+    const res = await fetch(`${API}/rankings/collect/product/${productId}`, { method: 'POST' });
+    const data = await res.json();
+    toast(`✅ ${data.product_name} — ${data.keywords_collected}개 키워드 수집 완료`);
+    await loadTrends();
+  } catch {
+    toast('수집 실패');
+    btn.disabled = false;
+    btn.textContent = '↺ 수집';
+  }
 }
 
 function toggleProductAcc(id, kwIndices, productId) {
