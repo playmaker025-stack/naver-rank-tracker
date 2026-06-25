@@ -1089,7 +1089,16 @@ async function loadProducts() {
         ${sorted.map(p => `
           <div style="border:1px solid #eee;border-radius:8px;padding:14px 16px;margin-bottom:8px;background:#fff">
             <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;flex-wrap:wrap">
-              <a href="${p.product_url}" target="_blank" style="flex:1;min-width:120px;font-size:.88rem;font-weight:700;color:#1a1a2e;text-decoration:none">${escH(p.product_name || p.naver_product_id)}</a>
+              <div id="pname-view-${p.id}" style="flex:1;min-width:120px;display:flex;align-items:center;gap:6px">
+                <a href="${p.product_url}" target="_blank" style="font-size:.88rem;font-weight:700;color:#1a1a2e;text-decoration:none">${escH(p.product_name || p.naver_product_id)}</a>
+                <button class="btn btn-ghost btn-sm" style="padding:1px 7px;font-size:.7rem" onclick="startEditName(${p.id},'${escQ(p.product_name || '')}')">✏️</button>
+              </div>
+              <div id="pname-edit-${p.id}" style="flex:1;min-width:180px;display:none;align-items:center;gap:5px">
+                <input id="pname-input-${p.id}" value="${escH(p.product_name || '')}" style="flex:1;padding:3px 8px;font-size:.85rem;border:1.5px solid #03c75a;border-radius:5px;outline:none"
+                  onkeydown="if(event.key==='Enter')saveProductName(${p.id});if(event.key==='Escape')cancelEditName(${p.id})">
+                <button class="btn btn-primary btn-sm" style="padding:3px 10px" onclick="saveProductName(${p.id})">저장</button>
+                <button class="btn btn-ghost btn-sm" style="padding:3px 8px" onclick="cancelEditName(${p.id})">취소</button>
+              </div>
               <span class="badge ${p.is_active ? 'badge-on' : 'badge-off'}">${p.is_active ? '추적중' : '중지'}</span>
               <button class="btn btn-ghost btn-sm" onclick="toggleProduct(${p.id})">${p.is_active ? '중지' : '재개'}</button>
               <button class="btn btn-danger btn-sm" onclick="deleteProduct(${p.id})">삭제</button>
@@ -1172,6 +1181,32 @@ async function addProduct() {
     const err = await res.json();
     toast('추가 실패: ' + (err.detail || '알 수 없는 오류'));
   }
+}
+
+function startEditName(id, current) {
+  document.getElementById(`pname-view-${id}`).style.display = 'none';
+  const editDiv = document.getElementById(`pname-edit-${id}`);
+  editDiv.style.display = 'flex';
+  const input = document.getElementById(`pname-input-${id}`);
+  input.value = current;
+  input.focus();
+  input.select();
+}
+function cancelEditName(id) {
+  document.getElementById(`pname-edit-${id}`).style.display = 'none';
+  document.getElementById(`pname-view-${id}`).style.display = 'flex';
+}
+async function saveProductName(id) {
+  const name = document.getElementById(`pname-input-${id}`).value.trim();
+  if (!name) { toast('상품명을 입력하세요.'); return; }
+  const res = await fetch(`${API}/products/${id}/name`, {
+    method: 'PATCH', headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({ product_name: name })
+  });
+  if (res.ok) {
+    toast('상품명이 수정되었습니다.');
+    loadProducts();
+  } else toast('수정 실패');
 }
 
 async function toggleProduct(id) {
