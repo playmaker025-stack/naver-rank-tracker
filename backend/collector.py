@@ -46,32 +46,50 @@ def _extract_product_id_from_url(url: str) -> str | None:
 
 
 def fetch_product_info(product_url: str) -> dict | None:
-    """상품 URL로 네이버 쇼핑에서 상품명과 productId를 가져온다."""
+    """상품 URL로 상품명과 productId를 가져온다.
+    1순위: 커머스 API (가장 정확)
+    2순위: 네이버 쇼핑 검색 API + 링크 URL 매칭
+    """
     product_id = _extract_product_id_from_url(product_url)
     if not product_id:
         return None
 
+    # 1순위: 커머스 API
+    try:
+        from backend.commerce import fetch_product_name
+        name = fetch_product_name(product_id)
+        if name:
+            return {
+                "naver_product_id": product_id,
+                "product_name": name,
+                "product_url": product_url,
+            }
+    except Exception:
+        pass
+
+    # 2순위: 쇼핑 검색 API — 링크 URL에서 product_id 매칭
     try:
         with httpx.Client(timeout=10) as client:
             resp = client.get(
                 NAVER_API_URL,
                 headers=_naver_headers(),
-                params={"query": product_id, "display": 10},
+                params={"query": product_id, "display": 20},
             )
             resp.raise_for_status()
-            data = resp.json()
+            items = resp.json().get("items", [])
 
-        for item in data.get("items", []):
-            if item.get("productId") == product_id:
+        for item in items:
+            link = item.get("link", "")
+            if re.search(rf"(?<!\d){re.escape(product_id)}(?!\d)", link):
                 return {
                     "naver_product_id": product_id,
                     "product_name": re.sub(r"<[^>]+>", "", item.get("title", "")),
-                    "product_url": item.get("link", product_url),
+                    "product_url": link or product_url,
                 }
-        # productId 매칭 실패 시 URL 기반으로 기본값 반환
-        return {"naver_product_id": product_id, "product_name": "", "product_url": product_url}
     except Exception:
-        return {"naver_product_id": product_id, "product_name": "", "product_url": product_url}
+        pass
+
+    return {"naver_product_id": product_id, "product_name": "", "product_url": product_url}
 
 
 def _search_keyword(keyword: str) -> list[dict]:

@@ -90,6 +90,28 @@ def fetch_product_tags(channel_product_no: str) -> list[str] | None:
         return None
 
 
+def fetch_product_name(channel_product_no: str) -> str | None:
+    """커머스 API로 상품명을 가져온다."""
+    token = _get_access_token()
+    if not token:
+        return None
+    try:
+        resp = httpx.get(
+            f"{_COMMERCE_BASE}/v2/products/channel-products/{channel_product_no}",
+            headers={"Authorization": f"Bearer {token}"},
+            timeout=10,
+        )
+        if resp.status_code != 200:
+            return None
+        data = resp.json()
+        return (
+            data.get("originProduct", {}).get("name")
+            or data.get("channelProduct", {}).get("channelProductDisplayName")
+        )
+    except Exception:
+        return None
+
+
 def check_ip_registered() -> bool:
     """현재 서버 IP가 커머스 API에 등록되어 있는지 토큰 발급으로 확인."""
     return _get_access_token() is not None
