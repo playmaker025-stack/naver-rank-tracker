@@ -259,6 +259,17 @@ def get_rank_changes(threshold: int = 5, db: Session = Depends(get_db)):
     return result
 
 
+@router.get("/debug/server-ip")
+def debug_server_ip():
+    """Railway 서버의 외부 IP 확인용."""
+    import httpx
+    try:
+        r = httpx.get("https://api.ipify.org?format=json", timeout=5)
+        return r.json()
+    except Exception as e:
+        return {"error": str(e)}
+
+
 @router.get("/debug/env")
 def debug_env():
     """환경변수 주입 확인용 (키 이름만 반환)."""
