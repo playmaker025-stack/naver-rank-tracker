@@ -649,17 +649,16 @@ async function loadTrends() {
   _trendCharts = {};
 
   try {
-    const res = await fetch(`${API}/rankings/history/all?limit=60`);
-    const data = await res.json();
-
-    if (!data.length) {
-      container.innerHTML = '<p class="empty-msg">수집된 데이터가 없습니다. 상품·키워드를 등록 후 "지금 수집" 버튼을 눌러주세요.</p>';
-      return;
-    }
+    const [histRes, prodRes] = await Promise.all([
+      fetch(`${API}/rankings/history/all?limit=60`),
+      fetch(`${API}/products`),
+    ]);
+    const data = await histRes.json();
+    const allProducts = await prodRes.json();
 
     window._trendsData = data;
 
-    // 스토어 → 제품 → 키워드 그룹핑
+    // 수집 이력으로 스토어→제품→키워드 그룹핑
     const byStore = {};
     data.forEach((item, idx) => {
       if (!byStore[item.store_name]) byStore[item.store_name] = {};
@@ -667,6 +666,21 @@ async function loadTrends() {
       if (!prods[item.product_name]) prods[item.product_name] = [];
       prods[item.product_name].push({ ...item, _idx: idx });
     });
+
+    // 수집 이력이 없는 신규 상품도 표시 (수집 버튼 사용 위해)
+    const seenProdIds = new Set(data.map(d => d.product_id));
+    allProducts.forEach(p => {
+      if (seenProdIds.has(p.id)) return;
+      if (!byStore[p.store_name]) byStore[p.store_name] = {};
+      if (!byStore[p.store_name][p.product_name]) {
+        byStore[p.store_name][p.product_name] = [{ _no_history: true, product_id: p.id, product_name: p.product_name, store_name: p.store_name, keywords: p.keywords }];
+      }
+    });
+
+    if (!Object.keys(byStore).length) {
+      container.innerHTML = '<p class="empty-msg">수집된 데이터가 없습니다. 상품·키워드를 등록 후 "지금 수집" 버튼을 눌러주세요.</p>';
+      return;
+    }
 
     // 가나다 오름순 정렬 (스토어명, 제품명 모두)
     const sortedStores = Object.entries(byStore).sort(([a], [b]) => a.localeCompare(b, 'ko'));
@@ -682,8 +696,24 @@ async function loadTrends() {
         </div>
         <div class="acc-store-body" id="body-s${si}">
           ${sortedProds.map(([prodName, kwItems], pi) => {
-            const kwIndices = kwItems.map(i => i._idx).join(',');
             const prodId = kwItems[0].product_id;
+            const noHistory = kwItems[0]._no_history;
+            if (noHistory) {
+              const kwList = (kwItems[0].keywords || []).join(', ') || '키워드 없음';
+              return `
+              <div class="acc-kw">
+                <div class="acc-kw-header" style="cursor:default">
+                  <span style="opacity:.3">▶</span>
+                  ${escH(prodName)}
+                  <button id="collectbtn-${prodId}" class="btn btn-ghost btn-sm"
+                    style="margin-left:10px;font-size:.7rem;padding:2px 9px;flex-shrink:0"
+                    onclick="collectProduct(${prodId},event)">↺ 수집</button>
+                  <span style="margin-left:auto;font-size:.75rem;color:#f59e0b;font-weight:400">아직 수집 전</span>
+                </div>
+                <div style="padding:8px 16px 10px;font-size:.78rem;color:#aaa">키워드: ${escH(kwList)}</div>
+              </div>`;
+            }
+            const kwIndices = kwItems.map(i => i._idx).join(',');
             return `
               <div class="acc-kw">
                 <div class="acc-kw-header" onclick="toggleProductAcc('pp${si}-${pi}',[${kwIndices}],${prodId})">
