@@ -900,10 +900,16 @@ async function loadStores() {
       <td><code style="font-size:.8rem">${s.mall_name}</code></td>
       <td><a href="${s.store_url}" target="_blank" style="color:#03c75a;font-size:.8rem">${s.store_url}</a></td>
       <td>
-        <div style="display:flex;gap:4px;align-items:center">
-          <input id="tgchat-${s.id}" value="${escH(s.telegram_chat_id || '')}" placeholder="-1001234567890"
-            style="font-size:.75rem;padding:4px 7px;border:1px solid #ddd;border-radius:4px;width:150px;font-family:monospace" />
-          <button class="btn btn-ghost btn-sm" onclick="saveTelegramChat(${s.id})">저장</button>
+        <div style="display:flex;flex-direction:column;gap:4px">
+          <div style="display:flex;gap:4px;align-items:center">
+            <input id="tgchat-${s.id}" value="${escH(s.telegram_chat_id || '')}" placeholder="채팅 ID (-100...)"
+              style="font-size:.73rem;padding:3px 6px;border:1px solid #ddd;border-radius:4px;width:155px;font-family:monospace" />
+          </div>
+          <div style="display:flex;gap:4px;align-items:center">
+            <input id="tgkey-${s.id}" value="${escH(s.telegram_token_key || '')}" placeholder="env 키 (예: TELEGRAM_BOT_TOKEN_2)"
+              style="font-size:.73rem;padding:3px 6px;border:1px solid #ddd;border-radius:4px;width:155px;font-family:monospace" />
+            <button class="btn btn-ghost btn-sm" onclick="saveTelegramChat(${s.id})">저장</button>
+          </div>
         </div>
       </td>
       <td><button class="btn btn-danger btn-sm" onclick="deleteStore(${s.id})">삭제</button></td>
@@ -911,13 +917,14 @@ async function loadStores() {
 }
 
 async function saveTelegramChat(storeId) {
-  const val = document.getElementById(`tgchat-${storeId}`).value.trim();
+  const chatId = document.getElementById(`tgchat-${storeId}`).value.trim();
+  const tokenKey = document.getElementById(`tgkey-${storeId}`).value.trim();
   const res = await fetch(`${API}/stores/${storeId}/telegram`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ telegram_chat_id: val || null })
+    body: JSON.stringify({ telegram_chat_id: chatId || null, telegram_token_key: tokenKey || null })
   });
-  if (res.ok) toast('텔레그램 채팅 ID가 저장되었습니다.');
+  if (res.ok) toast('텔레그램 설정이 저장되었습니다.');
   else toast('저장 실패');
 }
 

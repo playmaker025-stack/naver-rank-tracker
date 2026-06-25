@@ -13,6 +13,7 @@ class StoreCreate(BaseModel):
     mall_name: str
     store_url: str
     telegram_chat_id: str | None = None
+    telegram_token_key: str | None = None
 
 
 class StoreOut(BaseModel):
@@ -21,12 +22,14 @@ class StoreOut(BaseModel):
     mall_name: str
     store_url: str
     telegram_chat_id: str | None = None
+    telegram_token_key: str | None = None
 
     model_config = {"from_attributes": True}
 
 
 class StoreTelegramUpdate(BaseModel):
     telegram_chat_id: str | None = None
+    telegram_token_key: str | None = None
 
 
 @router.get("", response_model=list[StoreOut])
@@ -49,6 +52,7 @@ def update_store_telegram(store_id: int, body: StoreTelegramUpdate, db: Session 
     if not store:
         raise HTTPException(status_code=404, detail="Store not found")
     store.telegram_chat_id = body.telegram_chat_id or None
+    store.telegram_token_key = body.telegram_token_key or None
     db.commit()
     db.refresh(store)
     return store

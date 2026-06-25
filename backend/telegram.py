@@ -4,8 +4,8 @@ import httpx
 TELEGRAM_API = "https://api.telegram.org"
 
 
-def _send(message: str, chat_id: str | None = None) -> bool:
-    token = os.environ.get("TELEGRAM_BOT_TOKEN", "")
+def _send(message: str, chat_id: str | None = None, bot_token: str | None = None) -> bool:
+    token = bot_token or os.environ.get("TELEGRAM_BOT_TOKEN", "")
     target = chat_id or os.environ.get("TELEGRAM_CHAT_ID", "")
     if not token or not target:
         return False
@@ -20,7 +20,7 @@ def _send(message: str, chat_id: str | None = None) -> bool:
         return False
 
 
-def send_rank_alert(alerts: list[dict], chat_id: str | None = None) -> None:
+def send_rank_alert(alerts: list[dict], chat_id: str | None = None, bot_token: str | None = None) -> None:
     if not alerts:
         return
     surges = [a for a in alerts if a.get("prev") is None or (a.get("curr") or 999) < (a.get("prev") or 999)]
@@ -37,10 +37,11 @@ def send_rank_alert(alerts: list[dict], chat_id: str | None = None) -> None:
         else:
             arrow, change = f"📉 ▼{curr - prev}계단", f"{prev}위 → {curr}위"
         lines.append(f"{arrow} {a['product'][:20]} / {a['keyword']}: {change}")
-    _send("\n".join(lines), chat_id=chat_id)
+    _send("\n".join(lines), chat_id=chat_id, bot_token=bot_token)
 
 
-def send_collection_summary(result: dict, chat_ids: list[str] | None = None) -> None:
+def send_collection_summary(result: dict, store_channels: list[dict] | None = None) -> None:
+    """store_channels: [{"chat_id": str, "bot_token": str|None}, ...]"""
     from datetime import datetime, timezone, timedelta
     kst_now = (datetime.now(timezone.utc) + timedelta(hours=9)).strftime("%m/%d %H:%M")
     msg = (
@@ -48,12 +49,13 @@ def send_collection_summary(result: dict, chat_ids: list[str] | None = None) -> 
         f"상품 키워드 수집: {result.get('products', 0)}건\n"
         f"키워드 TOP10 수집: {result.get('keywords', 0)}건"
     )
-    if chat_ids:
-        sent = set()
-        for cid in chat_ids:
-            if cid and cid not in sent:
-                _send(msg, chat_id=cid)
-                sent.add(cid)
+    if store_channels:
+        seen = set()
+        for ch in store_channels:
+            key = (ch.get("chat_id"), ch.get("bot_token"))
+            if key not in seen:
+                _send(msg, chat_id=ch.get("chat_id"), bot_token=ch.get("bot_token"))
+                seen.add(key)
     else:
         _send(msg)
 

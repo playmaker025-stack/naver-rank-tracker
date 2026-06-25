@@ -29,13 +29,16 @@ def _run_collection():
 
         result = collect_all(db)
 
-        # 스토어별 알림 분리: {store_id: {"alerts": [...], "chat_id": str|None}}
+        import os as _os
+        # 스토어별 알림 분리: {store_id: {"alerts": [], "chat_id": str|None, "bot_token": str|None}}
         store_alerts: Dict[int, dict] = {}
         for p in products:
             if p.store_id not in store_alerts:
+                token_key = (p.store.telegram_token_key if p.store else None) or "TELEGRAM_BOT_TOKEN"
                 store_alerts[p.store_id] = {
                     "alerts": [],
                     "chat_id": p.store.telegram_chat_id if p.store else None,
+                    "bot_token": _os.environ.get(token_key),
                 }
             for pk in p.keywords:
                 latest = (
@@ -57,11 +60,15 @@ def _run_collection():
 
         for info in store_alerts.values():
             if info["alerts"]:
-                send_rank_alert(info["alerts"], chat_id=info["chat_id"])
+                send_rank_alert(info["alerts"], chat_id=info["chat_id"], bot_token=info["bot_token"])
 
-        # 수집 완료 요약: 스토어별 채팅 ID 목록 (중복 제거)
-        all_chat_ids = list({info["chat_id"] for info in store_alerts.values() if info["chat_id"]})
-        send_collection_summary(result, chat_ids=all_chat_ids or None)
+        # 수집 완료 요약: 스토어별 채널 목록
+        store_channels = [
+            {"chat_id": info["chat_id"], "bot_token": info["bot_token"]}
+            for info in store_alerts.values()
+            if info["chat_id"] or info["bot_token"]
+        ]
+        send_collection_summary(result, store_channels=store_channels or None)
     finally:
         db.close()
 
