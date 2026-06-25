@@ -272,6 +272,29 @@ def debug_env():
     }
 
 
+@router.get("/debug/product-page")
+def debug_product_page(product_url: str):
+    """SmartStore 상품 페이지 __NEXT_DATA__ 키 구조 확인용."""
+    import httpx, json, re as _re
+    try:
+        with httpx.Client(timeout=15, follow_redirects=True) as client:
+            resp = client.get(product_url, headers={
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                "Accept-Language": "ko-KR,ko;q=0.9",
+            })
+        m = _re.search(r'<script id="__NEXT_DATA__"[^>]*>(.*?)</script>', resp.text, _re.DOTALL)
+        if not m:
+            return {"error": "no __NEXT_DATA__", "status": resp.status_code}
+        nd = json.loads(m.group(1))
+        detail = nd["props"]["pageProps"]["initialState"]["product"]["productDetail"]
+        # 태그 관련 키만 추출
+        tag_keys = {k: v for k, v in detail.items() if "tag" in k.lower()}
+        all_keys = list(detail.keys())
+        return {"tag_fields": tag_keys, "all_keys": all_keys}
+    except Exception as e:
+        return {"error": str(e)}
+
+
 @router.get("/debug/search")
 def debug_search(keyword: str, db: Session = Depends(get_db)):
     """키워드 검색 결과 원본 확인 (에러 포함)."""
