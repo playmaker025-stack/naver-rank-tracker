@@ -247,12 +247,13 @@ def get_rank_changes(threshold: int = 5, db: Session = Depends(get_db)):
             if abs(best_diff) >= threshold and best_prev_rank is not None:
                 result.append({
                     "product_name": product.product_name,
+                    "store_name": product.store.name if product.store else "",
                     "keyword": pk.keyword,
-                    "curr_rank": curr_rank,        # 항상 최신 순위
-                    "prev_rank": best_prev_rank,   # 변동 직전 순위
+                    "curr_rank": curr_rank,
+                    "prev_rank": best_prev_rank,
                     "diff": best_diff,
                     "type": "surge" if best_diff > 0 else "drop",
-                    "collected_at": best_change_time.isoformat() + "Z",
+                    "collected_at": best_change_time.strftime("%Y-%m-%dT%H:%M:%SZ"),
                 })
     result.sort(key=lambda x: -abs(x["diff"]))
     return result

@@ -1393,13 +1393,14 @@ async function loadRankAlerts() {
       const time    = fmtDate(d.collected_at);
       return `
         <div class="alert-card ${isSurge ? '' : 'drop'}">
-          <div class="alert-card-time">${time}</div>
+          <div class="alert-card-time">${escH(d.store_name || '')}</div>
           <div class="alert-card-prod" title="${escH(d.product_name)}">${escH(d.product_name)}</div>
           <div class="alert-card-kw">${escH(d.keyword)}</div>
           <div class="alert-card-rank">
             <span class="alert-card-change ${isSurge ? 'surge' : 'drop'}">${sign}</span>
             <span style="color:#9ca3af;font-size:.7rem">${d.prev_rank}위 → ${d.curr_rank}위</span>
           </div>
+          <div style="font-size:.65rem;color:#bbb;margin-top:2px">${time}</div>
         </div>`;
     }).join('');
   } catch { /* 배너 로드 실패는 조용히 무시 */ }
