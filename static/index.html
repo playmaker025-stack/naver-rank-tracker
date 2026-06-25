@@ -382,7 +382,8 @@
       border-color: #fca5a5;
     }
     .alert-card-time  { color: #9ca3af; font-size: .68rem; }
-    .alert-card-prod  { font-weight: 700; color: #1a1a2e; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 140px; }
+    .alert-card-prod  { font-weight: 700; color: #1a1a2e; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; max-width: 160px; line-height: 1.3; cursor: default; }
+    .alert-card-prod:hover { -webkit-line-clamp: unset; overflow: visible; position: relative; z-index: 10; background: #fff; box-shadow: 0 2px 8px rgba(0,0,0,.12); border-radius: 4px; padding: 2px 4px; margin: -2px -4px; }
     .alert-card-rank  { display: flex; align-items: center; gap: 4px; }
     .alert-card-kw    { color: #6b7280; font-size: .7rem; }
     .alert-card-change.surge { color: #16a34a; font-weight: 800; }
@@ -1105,7 +1106,6 @@ async function loadProducts() {
             </div>
             <div style="margin-bottom:8px;display:flex;align-items:center;gap:6px;flex-wrap:wrap">
               <code style="font-size:.7rem;background:#f5f5f5;color:#666;padding:2px 7px;border-radius:4px;user-select:all" title="네이버 상품 ID (매칭 기준)">ID: ${escH(p.naver_product_id)}</code>
-              <button class="btn btn-ghost btn-sm" style="font-size:.68rem;padding:2px 8px" onclick="debugMatch(${p.id},'${escQ(p.naver_product_id)}','${escQ(p.product_name)}',${JSON.stringify(p.keywords)})">🔍 매칭 확인</button>
             </div>
             <div style="font-size:.73rem;color:#aaa;margin-bottom:5px;font-weight:600">키워드</div>
             ${renderKwTags(p)}
