@@ -1204,8 +1204,13 @@ async function saveProductName(id) {
     body: JSON.stringify({ product_name: name })
   });
   if (res.ok) {
+    // 페이지 새로고침 없이 해당 카드 이름만 교체
+    const viewDiv = document.getElementById(`pname-view-${id}`);
+    const anchor = viewDiv.querySelector('a');
+    if (anchor) anchor.textContent = name;
+    _productNames[id] = name;
+    cancelEditName(id);
     toast('상품명이 수정되었습니다.');
-    loadProducts();
   } else toast('수정 실패');
 }
 
