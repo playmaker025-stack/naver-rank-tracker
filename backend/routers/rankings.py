@@ -197,40 +197,62 @@ def get_title_history(product_id: int, db: Session = Depends(get_db)):
 
 @router.get("/rank-changes")
 def get_rank_changes(threshold: int = 5, db: Session = Depends(get_db)):
-    """최근 24시간 이내 수집분 중 threshold 이상 순위 급변동 항목 반환."""
+    """24시간 내 최대 급변동 항목 반환.
+    - 변동 발생 후 다음 수집에서 유지되어도 24시간은 배너에 고정
+    - curr_rank는 항상 최신 순위로 갱신
+    - 24시간 내 여러 번 변동 시 가장 큰 단일 변동 기준으로 표시
+    """
     from datetime import timedelta
     cutoff = datetime.now(timezone.utc) - timedelta(hours=24)
+    # 여유분(1회 수집) 포함해 최대 5건 조회
     products = db.query(TrackedProduct).filter(TrackedProduct.is_active == True).all()  # noqa: E712
     result = []
     for product in products:
         for pk in product.keywords:
-            latest_two = (
+            rows = (
                 db.query(ProductRankHistory)
                 .filter(
                     ProductRankHistory.product_id == product.id,
                     ProductRankHistory.keyword == pk.keyword,
                 )
                 .order_by(desc(ProductRankHistory.collected_at))
-                .limit(2)
+                .limit(6)
                 .all()
             )
-            if len(latest_two) < 2 or latest_two[0].rank is None or latest_two[1].rank is None:
+            if not rows:
                 continue
-            curr, prev = latest_two[0], latest_two[1]
-            # 가장 최근 수집이 24시간을 초과하면 배너에 표시하지 않음
-            collected_utc = curr.collected_at.replace(tzinfo=timezone.utc) if curr.collected_at.tzinfo is None else curr.collected_at
-            if collected_utc < cutoff:
-                continue
-            diff = prev.rank - curr.rank  # 양수=상승, 음수=하락
-            if abs(diff) >= threshold:
+
+            curr_record = rows[0]
+            curr_rank = curr_record.rank
+
+            # 24시간 내 연속 쌍에서 최대 변동 탐색
+            best_diff = 0
+            best_prev_rank = None
+            best_change_time = None
+
+            for i in range(len(rows) - 1):
+                r_new = rows[i]
+                r_old = rows[i + 1]
+                r_new_utc = r_new.collected_at.replace(tzinfo=timezone.utc) if r_new.collected_at.tzinfo is None else r_new.collected_at
+                if r_new_utc < cutoff:
+                    break  # 이후는 24h 바깥
+                if r_new.rank is None or r_old.rank is None:
+                    continue
+                diff = r_old.rank - r_new.rank  # 양수=상승
+                if abs(diff) > abs(best_diff):
+                    best_diff = diff
+                    best_prev_rank = r_old.rank
+                    best_change_time = r_new_utc
+
+            if abs(best_diff) >= threshold and best_prev_rank is not None:
                 result.append({
                     "product_name": product.product_name,
                     "keyword": pk.keyword,
-                    "curr_rank": curr.rank,
-                    "prev_rank": prev.rank,
-                    "diff": diff,
-                    "type": "surge" if diff > 0 else "drop",
-                    "collected_at": curr.collected_at.isoformat() + "Z",
+                    "curr_rank": curr_rank,        # 항상 최신 순위
+                    "prev_rank": best_prev_rank,   # 변동 직전 순위
+                    "diff": best_diff,
+                    "type": "surge" if best_diff > 0 else "drop",
+                    "collected_at": best_change_time.isoformat() + "Z",
                 })
     result.sort(key=lambda x: -abs(x["diff"]))
     return result
