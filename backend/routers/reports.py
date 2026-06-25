@@ -89,12 +89,15 @@ def get_report(product_id: int, keyword: str, db: Session = Depends(get_db)):
     def _is_ours(c) -> bool:
         return bool(_our_store_name(c)) or bool(c.naver_product_id and c.naver_product_id == pid)
 
-    our_entry = next((c for c in current_competitors if _is_ours(c)), None)
+    # naver_product_id 정확 매칭 우선, 없으면 mall_name 폴백
+    our_entry = next((c for c in current_competitors if c.naver_product_id == pid), None)
+    if our_entry is None:
+        our_entry = next((c for c in current_competitors if _is_ours(c)), None)
     our_title = our_entry.title if our_entry else (product.product_name or "")
 
-    # ── 가격 분석 ──
-    prices = [c.price for c in current_competitors if c.price]
-    our_price = our_entry.price if our_entry else None
+    # ── 가격 분석 (우리 상품 제외한 경쟁사 가격으로 통계) ──
+    competitor_prices = [c.price for c in current_competitors if c.price and not (c.naver_product_id == pid)]
+    our_price = our_entry.price if our_entry and our_entry.naver_product_id == pid else None
 
     # ── 키워드 최적화 분석 ──
     top10 = [c for c in current_competitors if c.search_rank <= 10]
@@ -147,9 +150,9 @@ def get_report(product_id: int, keyword: str, db: Session = Depends(get_db)):
         },
         "price": {
             "ours": our_price,
-            "top20_avg": int(sum(prices) / len(prices)) if prices else None,
-            "top20_min": min(prices) if prices else None,
-            "top20_max": max(prices) if prices else None,
+            "top20_avg": int(sum(competitor_prices) / len(competitor_prices)) if competitor_prices else None,
+            "top20_min": min(competitor_prices) if competitor_prices else None,
+            "top20_max": max(competitor_prices) if competitor_prices else None,
         },
         "keyword_optimization": {
             "in_our_title": keyword_in_our_title,
