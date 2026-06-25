@@ -1091,7 +1091,7 @@ async function loadProducts() {
             <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;flex-wrap:wrap">
               <div id="pname-view-${p.id}" style="flex:1;min-width:120px;display:flex;align-items:center;gap:6px">
                 <a href="${p.product_url}" target="_blank" style="font-size:.88rem;font-weight:700;color:#1a1a2e;text-decoration:none">${escH(p.product_name || p.naver_product_id)}</a>
-                <button class="btn btn-ghost btn-sm" style="padding:1px 7px;font-size:.7rem" onclick="startEditName(${p.id},'${escQ(p.product_name || '')}')">✏️</button>
+                <button class="btn btn-ghost btn-sm" style="padding:3px 10px;font-size:.78rem" onclick="startEditName(${p.id},'${escQ(p.product_name || '')}')">수정</button>
               </div>
               <div id="pname-edit-${p.id}" style="flex:1;min-width:180px;display:none;align-items:center;gap:5px">
                 <input id="pname-input-${p.id}" value="${escH(p.product_name || '')}" style="flex:1;padding:3px 8px;font-size:.85rem;border:1.5px solid #03c75a;border-radius:5px;outline:none"
