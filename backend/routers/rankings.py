@@ -289,6 +289,7 @@ def debug_search(keyword: str, db: Session = Depends(get_db)):
 @router.post("/collect")
 def manual_collect(db: Session = Depends(get_db)):
     """수동 수집 트리거."""
+    import os
     prev_ranks: dict[tuple, int | None] = {}
     products = db.query(TrackedProduct).filter(TrackedProduct.is_active == True).all()  # noqa: E712
     for p in products:
@@ -303,8 +304,16 @@ def manual_collect(db: Session = Depends(get_db)):
 
     result = collect_all(db)
 
-    alerts = []
+    # 스토어별 알림 분리
+    store_alerts: dict[int, dict] = {}
     for p in products:
+        if p.store_id not in store_alerts:
+            token_key = (p.store.telegram_token_key if p.store else None) or "TELEGRAM_BOT_TOKEN"
+            store_alerts[p.store_id] = {
+                "alerts": [],
+                "chat_id": p.store.telegram_chat_id if p.store else None,
+                "bot_token": os.environ.get(token_key),
+            }
         for pk in p.keywords:
             latest = (
                 db.query(ProductRankHistory)
@@ -314,11 +323,26 @@ def manual_collect(db: Session = Depends(get_db)):
             )
             curr_rank = latest.rank if latest else None
             prev_rank = prev_ranks.get((p.id, pk.keyword))
-            if curr_rank != prev_rank:
-                alerts.append({"product": p.product_name, "keyword": pk.keyword, "prev": prev_rank, "curr": curr_rank})
+            is_notable = (
+                (prev_rank is None and curr_rank is not None)
+                or (prev_rank is not None and curr_rank is not None and abs(prev_rank - curr_rank) >= 5)
+            )
+            if is_notable:
+                store_alerts[p.store_id]["alerts"].append(
+                    {"product": p.product_name, "keyword": pk.keyword, "prev": prev_rank, "curr": curr_rank}
+                )
 
-    if alerts:
-        send_rank_alert(alerts)
-    send_collection_summary(result)
+    total_alerts = 0
+    for info in store_alerts.values():
+        if info["alerts"]:
+            send_rank_alert(info["alerts"], chat_id=info["chat_id"], bot_token=info["bot_token"])
+            total_alerts += len(info["alerts"])
 
-    return {**result, "alerts_sent": len(alerts)}
+    store_channels = [
+        {"chat_id": info["chat_id"], "bot_token": info["bot_token"]}
+        for info in store_alerts.values()
+        if info["chat_id"] or info["bot_token"]
+    ]
+    send_collection_summary(result, store_channels=store_channels or None)
+
+    return {**result, "alerts_sent": total_alerts}
