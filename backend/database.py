@@ -51,3 +51,19 @@ def _run_migrations():
                 conn.commit()
         except Exception:
             pass
+    # product_tag_history 테이블 생성 (모델로 자동 처리)
+    try:
+        with engine.connect() as conn:
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS product_tag_history (
+                    id SERIAL PRIMARY KEY,
+                    product_id INTEGER NOT NULL REFERENCES tracked_products(id),
+                    old_tags VARCHAR NOT NULL,
+                    new_tags VARCHAR NOT NULL,
+                    changed_at TIMESTAMP NOT NULL
+                )
+            """))
+            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_product_tag_history_product_id ON product_tag_history(product_id)"))
+            conn.commit()
+    except Exception:
+        pass

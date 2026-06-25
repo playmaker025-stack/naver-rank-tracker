@@ -90,6 +90,17 @@ class ProductTitleHistory(Base):
     changed_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
 
 
+class ProductTagHistory(Base):
+    """상품 검색태그 변경 이력."""
+    __tablename__ = "product_tag_history"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    product_id: Mapped[int] = mapped_column(Integer, ForeignKey("tracked_products.id"), nullable=False, index=True)
+    old_tags: Mapped[str] = mapped_column(String, nullable=False, comment="변경 전 태그 (쉼표 구분)")
+    new_tags: Mapped[str] = mapped_column(String, nullable=False, comment="변경 후 태그 (쉼표 구분)")
+    changed_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+
+
 class KeywordCompetitorSnapshot(Base):
     """키워드별 TOP20 경쟁사 스냅샷 — 수집마다 저장."""
     __tablename__ = "keyword_competitor_snapshots"

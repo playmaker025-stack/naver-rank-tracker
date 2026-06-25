@@ -11,6 +11,7 @@ from backend.models import (
     KeywordTop10History,
     ProductPageMetrics,
     ProductRankHistory,
+    ProductTagHistory,
     ProductTitleHistory,
     TrackedProduct,
     WatchKeyword,
@@ -174,6 +175,8 @@ def collect_product_rankings(db: Session, collected_at: datetime | None = None) 
         .all()
     )
 
+    from backend.commerce import fetch_product_tags
+
     keyword_cache: dict[str, list[dict]] = {}
     competitor_saved: set[str] = set()   # 키워드당 1회만 저장
     metrics_saved: set[int] = set()      # 제품당 1회만 저장
@@ -234,7 +237,6 @@ def collect_product_rankings(db: Session, collected_at: datetime | None = None) 
                 competitor_saved.add(pk.keyword)
 
         # 제목 변경 감지: naver_title(마지막 수집 제목)과 비교
-        # product_name은 사용자 표시명으로 분리되어 있으므로 건드리지 않음
         if found_title:
             last_naver_title = product.naver_title or product.product_name
             if found_title != last_naver_title:
@@ -250,6 +252,33 @@ def collect_product_rankings(db: Session, collected_at: datetime | None = None) 
                         changed_at=collected_at,
                     ))
             product.naver_title = found_title
+
+        # 태그 변경 감지: 커머스 API로 현재 태그 조회
+        current_tags = fetch_product_tags(product.naver_product_id)
+        if current_tags is not None:
+            current_tags_str = ",".join(sorted(current_tags))
+            last_tag_row = (
+                db.query(ProductTagHistory)
+                .filter(ProductTagHistory.product_id == product.id)
+                .order_by(ProductTagHistory.changed_at.desc())
+                .first()
+            )
+            last_tags_str = last_tag_row.new_tags if last_tag_row else None
+            if last_tags_str is None:
+                # 최초 수집: 이력 없이 기준값만 기록
+                db.add(ProductTagHistory(
+                    product_id=product.id,
+                    old_tags="",
+                    new_tags=current_tags_str,
+                    changed_at=collected_at,
+                ))
+            elif current_tags_str != last_tags_str:
+                db.add(ProductTagHistory(
+                    product_id=product.id,
+                    old_tags=last_tags_str,
+                    new_tags=current_tags_str,
+                    changed_at=collected_at,
+                ))
 
     db.commit()
     return saved

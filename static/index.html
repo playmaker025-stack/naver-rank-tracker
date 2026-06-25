@@ -759,20 +759,43 @@ async function loadTitleHistory(productId, accId) {
   const el = document.getElementById(`title-hist-${accId}`);
   if (!el || el.dataset.loaded) return;
   try {
-    const res = await fetch(`${API}/rankings/products/${productId}/title-history`);
-    const data = await res.json();
-    if (!data.length) { el.style.display = 'none'; return; }
-    el.innerHTML = `
-      <div style="padding:10px 14px 6px;border-top:1px solid #f0f0f0">
-        <div style="font-size:.72rem;font-weight:700;color:#aaa;letter-spacing:.04em;margin-bottom:6px">📝 제목 변경 이력</div>
-        ${data.map(h => `
-          <div style="font-size:.75rem;padding:5px 0;border-bottom:1px solid #f9f9f9;line-height:1.5">
-            <span style="color:#bbb;margin-right:8px">${fmtDate(h.changed_at)}</span>
-            <span style="color:#888;text-decoration:line-through">${escH(h.old_title)}</span>
-            <span style="color:#aaa;margin:0 6px">→</span>
-            <span style="color:#1a1a2e;font-weight:600">${escH(h.new_title)}</span>
-          </div>`).join('')}
-      </div>`;
+    const [titleRes, tagRes] = await Promise.all([
+      fetch(`${API}/rankings/products/${productId}/title-history`),
+      fetch(`${API}/rankings/products/${productId}/tag-history`),
+    ]);
+    const titleData = await titleRes.json();
+    const tagData   = await tagRes.json();
+    if (!titleData.length && !tagData.length) { el.style.display = 'none'; return; }
+
+    let html = '<div style="padding:10px 14px 6px;border-top:1px solid #f0f0f0">';
+
+    if (titleData.length) {
+      html += `<div style="font-size:.72rem;font-weight:700;color:#aaa;letter-spacing:.04em;margin-bottom:6px">📝 제목 변경 이력</div>`;
+      html += titleData.map(h => `
+        <div style="font-size:.75rem;padding:5px 0;border-bottom:1px solid #f9f9f9;line-height:1.5">
+          <span style="color:#bbb;margin-right:8px">${fmtDate(h.changed_at)}</span>
+          <span style="color:#888;text-decoration:line-through">${escH(h.old_title)}</span>
+          <span style="color:#aaa;margin:0 6px">→</span>
+          <span style="color:#1a1a2e;font-weight:600">${escH(h.new_title)}</span>
+        </div>`).join('');
+    }
+
+    if (tagData.length) {
+      html += `<div style="font-size:.72rem;font-weight:700;color:#aaa;letter-spacing:.04em;margin:10px 0 6px">🏷️ 태그 변경 이력</div>`;
+      html += tagData.map(h => {
+        const removed = h.old_tags.filter(t => !h.new_tags.includes(t));
+        const added   = h.new_tags.filter(t => !h.old_tags.includes(t));
+        return `
+        <div style="font-size:.75rem;padding:5px 0;border-bottom:1px solid #f9f9f9;line-height:1.8">
+          <span style="color:#bbb;margin-right:8px">${fmtDate(h.changed_at)}</span>
+          ${removed.map(t => `<span style="background:#fff0f0;color:#ff4d4f;border-radius:3px;padding:1px 6px;margin:1px;text-decoration:line-through">−${escH(t)}</span>`).join('')}
+          ${added.map(t =>   `<span style="background:#f0fff4;color:#03c75a;border-radius:3px;padding:1px 6px;margin:1px">+${escH(t)}</span>`).join('')}
+        </div>`;
+      }).join('');
+    }
+
+    html += '</div>';
+    el.innerHTML = html;
     el.dataset.loaded = '1';
   } catch { el.style.display = 'none'; }
 }

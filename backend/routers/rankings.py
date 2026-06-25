@@ -175,6 +175,30 @@ def get_keyword_top10(db: Session = Depends(get_db)):
     return result
 
 
+@router.get("/products/{product_id}/tag-history")
+def get_tag_history(product_id: int, db: Session = Depends(get_db)):
+    """상품 검색태그 변경 이력 (최근 30건, 최초 기준값 제외)."""
+    from backend.models import ProductTagHistory
+    rows = (
+        db.query(ProductTagHistory)
+        .filter(
+            ProductTagHistory.product_id == product_id,
+            ProductTagHistory.old_tags != "",  # 최초 기준값 제외
+        )
+        .order_by(ProductTagHistory.changed_at.desc())
+        .limit(30)
+        .all()
+    )
+    return [
+        {
+            "old_tags": r.old_tags.split(",") if r.old_tags else [],
+            "new_tags": r.new_tags.split(",") if r.new_tags else [],
+            "changed_at": r.changed_at.strftime("%Y-%m-%dT%H:%M:%SZ"),
+        }
+        for r in rows
+    ]
+
+
 @router.get("/products/{product_id}/title-history")
 def get_title_history(product_id: int, db: Session = Depends(get_db)):
     """상품 제목 변경 이력 (최근 30건)."""
