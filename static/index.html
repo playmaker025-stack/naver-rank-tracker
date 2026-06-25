@@ -217,21 +217,45 @@
     #chartModal.open { display: flex; }
     .modal-box {
       background: #fff;
-      border-radius: 16px;
-      padding: 28px;
-      width: min(640px, 96vw);
-      box-shadow: 0 8px 32px rgba(0,0,0,.18);
+      border-radius: 18px;
+      padding: 28px 32px 24px;
+      width: min(720px, 96vw);
+      box-shadow: 0 12px 40px rgba(0,0,0,.22);
     }
-    .modal-box h3 { font-size: 1rem; margin-bottom: 16px; }
+    .modal-chart-header {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      margin-bottom: 18px;
+      gap: 8px;
+    }
+    .modal-chart-title {
+      font-size: .97rem;
+      font-weight: 700;
+      color: #1a1a2e;
+      line-height: 1.4;
+    }
+    .modal-chart-legend {
+      font-size: .75rem;
+      color: #e74c3c;
+      font-weight: 500;
+      margin-top: 3px;
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+    .modal-chart-legend::before { content: '●'; }
     .modal-close {
-      float: right;
       background: none;
       border: none;
-      font-size: 1.4rem;
+      font-size: 1.3rem;
       cursor: pointer;
-      color: #888;
+      color: #aaa;
       line-height: 1;
+      flex-shrink: 0;
+      padding: 0;
     }
+    .modal-close:hover { color: #555; }
 
     /* ── 알림 토스트 ── */
     #toast {
@@ -488,11 +512,16 @@
 </main>
 
 <!-- 차트 모달 -->
-<div id="chartModal">
+<div id="chartModal" onclick="if(event.target===this)closeChart()">
   <div class="modal-box">
-    <button class="modal-close" onclick="closeChart()">✕</button>
-    <h3 id="chartTitle"></h3>
-    <canvas id="rankChart" height="200"></canvas>
+    <div class="modal-chart-header">
+      <div>
+        <div class="modal-chart-title" id="chartTitle"></div>
+        <div class="modal-chart-legend">빨간 점 = 당일 변동 있음</div>
+      </div>
+      <button class="modal-close" onclick="closeChart()">✕</button>
+    </div>
+    <canvas id="rankChart"></canvas>
   </div>
 </div>
 
@@ -1209,36 +1238,78 @@ async function manualCollect() {
 ════════════════════════════════ */
 async function openChart(productId, keyword, productName) {
   const modal = document.getElementById('chartModal');
-  document.getElementById('chartTitle').textContent = `${productName} / "${keyword}" 순위 추이`;
+  document.getElementById('chartTitle').textContent = `📈 "${productName}" / "${keyword}" 30일 순위 추이`;
   modal.classList.add('open');
 
   const res = await fetch(`${API}/rankings/products/${productId}/history?keyword=${encodeURIComponent(keyword)}&limit=30`);
-  const data = await res.json();
+  const raw = await res.json();
+  const data = [...raw].reverse(); // 오래된 순 정렬
 
-  const labels = data.map(d => fmtDate(d.collected_at));
-  const ranks  = data.map(d => d.rank);
+  const labels = data.map(d => {
+    const dt = new Date(d.collected_at);
+    return `${dt.getMonth()+1}/${dt.getDate()}`;
+  });
+  const ranks = data.map(d => d.rank);
+
+  // 변동 여부: 이전 데이터와 다르면 빨간 점
+  const pointColors = ranks.map((r, i) => {
+    if (i === 0) return '#4a90e2';
+    return r !== ranks[i - 1] ? '#e74c3c' : '#4a90e2';
+  });
+  const pointRadii = pointColors.map(c => c === '#e74c3c' ? 7 : 5);
 
   if (chartInstance) chartInstance.destroy();
-  chartInstance = new Chart(document.getElementById('rankChart'), {
+  const canvas = document.getElementById('rankChart');
+  const ctx = canvas.getContext('2d');
+
+  const grad = ctx.createLinearGradient(0, 0, 0, 320);
+  grad.addColorStop(0, 'rgba(100,149,237,.28)');
+  grad.addColorStop(1, 'rgba(100,149,237,.02)');
+
+  chartInstance = new Chart(canvas, {
     type: 'line',
     data: {
       labels,
       datasets: [{
-        label: '순위',
         data: ranks,
-        borderColor: '#03c75a',
-        backgroundColor: 'rgba(3,199,90,.1)',
-        pointBackgroundColor: '#03c75a',
+        borderColor: '#4a90e2',
+        backgroundColor: grad,
+        pointBackgroundColor: pointColors,
+        pointBorderColor: pointColors,
+        pointRadius: pointRadii,
+        pointHoverRadius: 9,
         tension: 0.3,
         fill: true,
+        borderWidth: 2.5,
       }]
     },
     options: {
       responsive: true,
-      scales: {
-        y: { reverse: true, min: 1, title: { display: true, text: '순위 (낮을수록 좋음)' } }
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          callbacks: {
+            label: ctx => ctx.raw != null ? `${ctx.raw}위` : '100위 밖',
+            title: ctxArr => `📅 ${ctxArr[0].label}`
+          }
+        }
       },
-      plugins: { legend: { display: false } }
+      scales: {
+        y: {
+          reverse: true,
+          min: 1,
+          ticks: {
+            stepSize: 1,
+            callback: v => Number.isInteger(v) ? v + '위' : '',
+          },
+          title: { display: true, text: '순위', font: { size: 11 }, color: '#888' },
+          grid: { color: 'rgba(0,0,0,.06)' },
+        },
+        x: {
+          grid: { color: 'rgba(0,0,0,.06)' },
+          ticks: { font: { size: 10 }, maxRotation: 45, color: '#888' }
+        }
+      }
     }
   });
 }
