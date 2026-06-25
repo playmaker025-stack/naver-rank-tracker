@@ -4,15 +4,15 @@ import httpx
 TELEGRAM_API = "https://api.telegram.org"
 
 
-def _send(message: str) -> bool:
+def _send(message: str, chat_id: str | None = None) -> bool:
     token = os.environ.get("TELEGRAM_BOT_TOKEN", "")
-    chat_id = os.environ.get("TELEGRAM_CHAT_ID", "")
-    if not token or not chat_id:
+    target = chat_id or os.environ.get("TELEGRAM_CHAT_ID", "")
+    if not token or not target:
         return False
     try:
         resp = httpx.post(
             f"{TELEGRAM_API}/bot{token}/sendMessage",
-            json={"chat_id": chat_id, "text": message, "parse_mode": "HTML"},
+            json={"chat_id": target, "text": message, "parse_mode": "HTML"},
             timeout=10,
         )
         return resp.status_code == 200
@@ -20,7 +20,7 @@ def _send(message: str) -> bool:
         return False
 
 
-def send_rank_alert(alerts: list[dict]) -> None:
+def send_rank_alert(alerts: list[dict], chat_id: str | None = None) -> None:
     if not alerts:
         return
     surges = [a for a in alerts if a.get("prev") is None or (a.get("curr") or 999) < (a.get("prev") or 999)]
@@ -37,10 +37,10 @@ def send_rank_alert(alerts: list[dict]) -> None:
         else:
             arrow, change = f"📉 ▼{curr - prev}계단", f"{prev}위 → {curr}위"
         lines.append(f"{arrow} {a['product'][:20]} / {a['keyword']}: {change}")
-    _send("\n".join(lines))
+    _send("\n".join(lines), chat_id=chat_id)
 
 
-def send_collection_summary(result: dict) -> None:
+def send_collection_summary(result: dict, chat_ids: list[str] | None = None) -> None:
     from datetime import datetime, timezone, timedelta
     kst_now = (datetime.now(timezone.utc) + timedelta(hours=9)).strftime("%m/%d %H:%M")
     msg = (
@@ -48,7 +48,14 @@ def send_collection_summary(result: dict) -> None:
         f"상품 키워드 수집: {result.get('products', 0)}건\n"
         f"키워드 TOP10 수집: {result.get('keywords', 0)}건"
     )
-    _send(msg)
+    if chat_ids:
+        sent = set()
+        for cid in chat_ids:
+            if cid and cid not in sent:
+                _send(msg, chat_id=cid)
+                sent.add(cid)
+    else:
+        _send(msg)
 
 
 def send_scraper_error(keyword: str, reason: str) -> None:

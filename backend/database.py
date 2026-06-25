@@ -34,3 +34,14 @@ def get_db():
 def init_db():
     from backend import models  # noqa: F401
     Base.metadata.create_all(bind=engine)
+    _run_migrations()
+
+
+def _run_migrations():
+    from sqlalchemy import text
+    with engine.connect() as conn:
+        try:
+            conn.execute(text("ALTER TABLE stores ADD COLUMN telegram_chat_id VARCHAR"))
+            conn.commit()
+        except Exception:
+            pass

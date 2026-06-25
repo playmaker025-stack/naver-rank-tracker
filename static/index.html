@@ -469,8 +469,8 @@
     </div>
     <div class="table-wrap">
       <table id="storesTable">
-        <thead><tr><th>ID</th><th>스토어명</th><th>판매자명(mallName)</th><th>URL</th><th>관리</th></tr></thead>
-        <tbody id="storesTbody"><tr><td colspan="5" class="empty-msg">로딩 중…</td></tr></tbody>
+        <thead><tr><th>ID</th><th>스토어명</th><th>판매자명(mallName)</th><th>URL</th><th>텔레그램 채팅 ID</th><th>관리</th></tr></thead>
+        <tbody id="storesTbody"><tr><td colspan="6" class="empty-msg">로딩 중…</td></tr></tbody>
       </table>
     </div>
   </div>
@@ -892,15 +892,33 @@ async function loadStores() {
 
   select.innerHTML = '<option value="">스토어 선택</option>' + data.map(s => `<option value="${s.id}">${s.name}</option>`).join('');
 
-  if (!data.length) { tbody.innerHTML = '<tr><td colspan="5" class="empty-msg">등록된 스토어가 없습니다.</td></tr>'; return; }
+  if (!data.length) { tbody.innerHTML = '<tr><td colspan="6" class="empty-msg">등록된 스토어가 없습니다.</td></tr>'; return; }
   tbody.innerHTML = data.map(s => `
     <tr>
       <td>${s.id}</td>
       <td>${s.name}</td>
       <td><code style="font-size:.8rem">${s.mall_name}</code></td>
       <td><a href="${s.store_url}" target="_blank" style="color:#03c75a;font-size:.8rem">${s.store_url}</a></td>
+      <td>
+        <div style="display:flex;gap:4px;align-items:center">
+          <input id="tgchat-${s.id}" value="${escH(s.telegram_chat_id || '')}" placeholder="-1001234567890"
+            style="font-size:.75rem;padding:4px 7px;border:1px solid #ddd;border-radius:4px;width:150px;font-family:monospace" />
+          <button class="btn btn-ghost btn-sm" onclick="saveTelegramChat(${s.id})">저장</button>
+        </div>
+      </td>
       <td><button class="btn btn-danger btn-sm" onclick="deleteStore(${s.id})">삭제</button></td>
     </tr>`).join('');
+}
+
+async function saveTelegramChat(storeId) {
+  const val = document.getElementById(`tgchat-${storeId}`).value.trim();
+  const res = await fetch(`${API}/stores/${storeId}/telegram`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ telegram_chat_id: val || null })
+  });
+  if (res.ok) toast('텔레그램 채팅 ID가 저장되었습니다.');
+  else toast('저장 실패');
 }
 
 async function addStore() {

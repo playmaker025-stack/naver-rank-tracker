@@ -29,8 +29,14 @@ def _run_collection():
 
         result = collect_all(db)
 
-        alerts = []
+        # 스토어별 알림 분리: {store_id: {"alerts": [...], "chat_id": str|None}}
+        store_alerts: Dict[int, dict] = {}
         for p in products:
+            if p.store_id not in store_alerts:
+                store_alerts[p.store_id] = {
+                    "alerts": [],
+                    "chat_id": p.store.telegram_chat_id if p.store else None,
+                }
             for pk in p.keywords:
                 latest = (
                     db.query(ProductRankHistory)
@@ -41,15 +47,21 @@ def _run_collection():
                 curr_rank = latest.rank if latest else None
                 prev_rank = prev_ranks.get((p.id, pk.keyword))
                 is_notable = (
-                    (prev_rank is None and curr_rank is not None)  # 신규 진입
-                    or (prev_rank is not None and curr_rank is not None and abs(prev_rank - curr_rank) >= 5)  # 5위 이상 급변동
+                    (prev_rank is None and curr_rank is not None)
+                    or (prev_rank is not None and curr_rank is not None and abs(prev_rank - curr_rank) >= 5)
                 )
                 if is_notable:
-                    alerts.append({"product": p.product_name, "keyword": pk.keyword, "prev": prev_rank, "curr": curr_rank})
+                    store_alerts[p.store_id]["alerts"].append(
+                        {"product": p.product_name, "keyword": pk.keyword, "prev": prev_rank, "curr": curr_rank}
+                    )
 
-        if alerts:
-            send_rank_alert(alerts)
-        send_collection_summary(result)
+        for info in store_alerts.values():
+            if info["alerts"]:
+                send_rank_alert(info["alerts"], chat_id=info["chat_id"])
+
+        # 수집 완료 요약: 스토어별 채팅 ID 목록 (중복 제거)
+        all_chat_ids = list({info["chat_id"] for info in store_alerts.values() if info["chat_id"]})
+        send_collection_summary(result, chat_ids=all_chat_ids or None)
     finally:
         db.close()
 

@@ -11,6 +11,7 @@ class Store(Base):
     name: Mapped[str] = mapped_column(String, nullable=False)
     mall_name: Mapped[str] = mapped_column(String, nullable=False, comment="네이버 쇼핑 mallName (검색결과 매칭용)")
     store_url: Mapped[str] = mapped_column(String, nullable=False)
+    telegram_chat_id: Mapped[str | None] = mapped_column(String, nullable=True, comment="스토어 전용 텔레그램 채팅 ID")
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
     products: Mapped[list["TrackedProduct"]] = relationship(back_populates="store")
