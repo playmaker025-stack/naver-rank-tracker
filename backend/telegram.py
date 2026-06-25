@@ -40,24 +40,36 @@ def send_rank_alert(alerts: list[dict], chat_id: str | None = None, bot_token: s
     _send("\n".join(lines), chat_id=chat_id, bot_token=bot_token)
 
 
-def send_collection_summary(result: dict, store_channels: list[dict] | None = None) -> None:
-    """store_channels: [{"chat_id": str, "bot_token": str|None}, ...]"""
+def send_collection_summary(
+    result: dict,
+    changes: list[dict] | None = None,
+    chat_id: str | None = None,
+    bot_token: str | None = None,
+) -> None:
+    """변동 목록(2위 이상)을 포함한 수집 완료 메시지 전송.
+    changes 항목: {"product": str, "keyword": str, "prev": int, "curr": int, "diff": int}
+    diff = prev - curr (양수=상승, 음수=하락)
+    """
     from datetime import datetime, timezone, timedelta
     kst_now = (datetime.now(timezone.utc) + timedelta(hours=9)).strftime("%m/%d %H:%M")
-    msg = (
-        f"<b>[랭킹 수집 완료]</b> {kst_now} KST\n"
-        f"상품 키워드 수집: {result.get('products', 0)}건\n"
-        f"키워드 TOP10 수집: {result.get('keywords', 0)}건"
-    )
-    if store_channels:
-        seen = set()
-        for ch in store_channels:
-            key = (ch.get("chat_id"), ch.get("bot_token"))
-            if key not in seen:
-                _send(msg, chat_id=ch.get("chat_id"), bot_token=ch.get("bot_token"))
-                seen.add(key)
+    lines = [f"<b>[랭킹 수집]</b> {kst_now} KST"]
+
+    if changes:
+        surges = sorted([c for c in changes if c["diff"] > 0], key=lambda x: -x["diff"])
+        drops  = sorted([c for c in changes if c["diff"] < 0], key=lambda x:  x["diff"])
+        if surges:
+            lines.append("\n🚀 <b>순위 상승</b>")
+            for c in surges:
+                lines.append(f"  ▲{c['diff']} {c['product'][:16]} / {c['keyword']}: {c['prev']}위→{c['curr']}위")
+        if drops:
+            lines.append("\n📉 <b>순위 하락</b>")
+            for c in drops:
+                lines.append(f"  ▼{abs(c['diff'])} {c['product'][:16]} / {c['keyword']}: {c['prev']}위→{c['curr']}위")
     else:
-        _send(msg)
+        lines.append("2위 이상 변동 없음")
+
+    lines.append(f"\n총 {result.get('products', 0)}개 키워드 수집")
+    _send("\n".join(lines), chat_id=chat_id, bot_token=bot_token)
 
 
 def send_scraper_error(keyword: str, reason: str) -> None:

@@ -30,13 +30,14 @@ def _run_collection():
         result = collect_all(db)
 
         import os as _os
-        # 스토어별 알림 분리: {store_id: {"alerts": [], "chat_id": str|None, "bot_token": str|None}}
-        store_alerts: Dict[int, dict] = {}
+        # 스토어별 데이터: alerts(5위이상), changes(2위이상 summary용)
+        store_data: Dict[int, dict] = {}
         for p in products:
-            if p.store_id not in store_alerts:
+            if p.store_id not in store_data:
                 token_key = (p.store.telegram_token_key if p.store else None) or "TELEGRAM_BOT_TOKEN"
-                store_alerts[p.store_id] = {
+                store_data[p.store_id] = {
                     "alerts": [],
+                    "changes": [],
                     "chat_id": p.store.telegram_chat_id if p.store else None,
                     "bot_token": _os.environ.get(token_key),
                 }
@@ -49,26 +50,34 @@ def _run_collection():
                 )
                 curr_rank = latest.rank if latest else None
                 prev_rank = prev_ranks.get((p.id, pk.keyword))
-                is_notable = (
-                    (prev_rank is None and curr_rank is not None)
-                    or (prev_rank is not None and curr_rank is not None and abs(prev_rank - curr_rank) >= 5)
-                )
-                if is_notable:
-                    store_alerts[p.store_id]["alerts"].append(
-                        {"product": p.product_name, "keyword": pk.keyword, "prev": prev_rank, "curr": curr_rank}
+                if prev_rank is not None and curr_rank is not None:
+                    diff = prev_rank - curr_rank  # 양수=상승
+                    if abs(diff) >= 2:
+                        store_data[p.store_id]["changes"].append(
+                            {"product": p.product_name, "keyword": pk.keyword,
+                             "prev": prev_rank, "curr": curr_rank, "diff": diff}
+                        )
+                    if abs(diff) >= 5:
+                        store_data[p.store_id]["alerts"].append(
+                            {"product": p.product_name, "keyword": pk.keyword, "prev": prev_rank, "curr": curr_rank}
+                        )
+                elif prev_rank is None and curr_rank is not None:
+                    store_data[p.store_id]["alerts"].append(
+                        {"product": p.product_name, "keyword": pk.keyword, "prev": None, "curr": curr_rank}
                     )
 
-        for info in store_alerts.values():
+        for info in store_data.values():
             if info["alerts"]:
                 send_rank_alert(info["alerts"], chat_id=info["chat_id"], bot_token=info["bot_token"])
 
-        # 수집 완료 요약: 스토어별 채널 목록
-        store_channels = [
-            {"chat_id": info["chat_id"], "bot_token": info["bot_token"]}
-            for info in store_alerts.values()
-            if info["chat_id"] or info["bot_token"]
-        ]
-        send_collection_summary(result, store_channels=store_channels or None)
+        for info in store_data.values():
+            if info["chat_id"] or info["bot_token"]:
+                send_collection_summary(
+                    result,
+                    changes=info["changes"],
+                    chat_id=info["chat_id"],
+                    bot_token=info["bot_token"],
+                )
     finally:
         db.close()
 
