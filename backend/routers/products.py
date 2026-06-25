@@ -119,10 +119,20 @@ class ProductNameUpdate(BaseModel):
 
 @router.patch("/{product_id}/name", response_model=ProductOut)
 def update_product_name(product_id: int, body: ProductNameUpdate, db: Session = Depends(get_db)):
+    from backend.models import ProductTitleHistory
+    from datetime import datetime, timezone
     product = db.get(TrackedProduct, product_id)
     if not product:
         raise HTTPException(status_code=404, detail="Product not found")
-    product.product_name = body.product_name.strip()
+    new_name = body.product_name.strip()
+    if new_name and new_name != product.product_name:
+        db.add(ProductTitleHistory(
+            product_id=product.id,
+            old_title=product.product_name,
+            new_title=new_name,
+            changed_at=datetime.now(timezone.utc),
+        ))
+    product.product_name = new_name
     db.commit()
     db.refresh(product)
     return ProductOut(
