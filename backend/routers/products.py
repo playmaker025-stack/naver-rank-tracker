@@ -90,6 +90,7 @@ def add_product(body: ProductAdd, db: Session = Depends(get_db)):
         store_id=body.store_id,
         naver_product_id=naver_product_id,
         product_name=product_name,
+        naver_title=info.get("product_name") or product_name or None,
         product_url=info.get("product_url", body.product_url),
     )
     db.add(product)

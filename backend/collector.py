@@ -233,20 +233,23 @@ def collect_product_rankings(db: Session, collected_at: datetime | None = None) 
                     ))
                 competitor_saved.add(pk.keyword)
 
-        # 제목 변경 감지: 이전 수집 기록이 있을 때만 이력으로 기록 (첫 수집 오탐 방지)
-        if found_title and found_title != product.product_name:
-            has_prior = db.query(ProductRankHistory).filter(
-                ProductRankHistory.product_id == product.id,
-                ProductRankHistory.collected_at < collected_at,
-            ).first() is not None
-            if has_prior:
-                db.add(ProductTitleHistory(
-                    product_id=product.id,
-                    old_title=product.product_name,
-                    new_title=found_title,
-                    changed_at=collected_at,
-                ))
-            product.product_name = found_title
+        # 제목 변경 감지: naver_title(마지막 수집 제목)과 비교
+        # product_name은 사용자 표시명으로 분리되어 있으므로 건드리지 않음
+        if found_title:
+            last_naver_title = product.naver_title or product.product_name
+            if found_title != last_naver_title:
+                has_prior = product.naver_title is not None or db.query(ProductRankHistory).filter(
+                    ProductRankHistory.product_id == product.id,
+                    ProductRankHistory.collected_at < collected_at,
+                ).first() is not None
+                if has_prior:
+                    db.add(ProductTitleHistory(
+                        product_id=product.id,
+                        old_title=last_naver_title,
+                        new_title=found_title,
+                        changed_at=collected_at,
+                    ))
+            product.naver_title = found_title
 
     db.commit()
     return saved

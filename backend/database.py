@@ -39,10 +39,15 @@ def init_db():
 
 def _run_migrations():
     from sqlalchemy import text
-    for col in ["telegram_chat_id", "telegram_token_key"]:
+    for col_def in [
+        ("stores", "telegram_chat_id", "VARCHAR"),
+        ("stores", "telegram_token_key", "VARCHAR"),
+        ("tracked_products", "naver_title", "VARCHAR"),
+    ]:
+        table, col, typ = col_def
         try:
             with engine.connect() as conn:
-                conn.execute(text(f"ALTER TABLE stores ADD COLUMN {col} VARCHAR"))
+                conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {col} {typ}"))
                 conn.commit()
         except Exception:
             pass
