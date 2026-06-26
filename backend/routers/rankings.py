@@ -242,6 +242,39 @@ def debug_commerce_tags(naver_product_id: str):
     }
 
 
+@router.get("/debug/page-tags/{product_id}")
+def debug_page_tags(product_id: int, db: Session = Depends(get_db)):
+    """SmartStore 페이지에서 태그 추출 테스트."""
+    import json, re, httpx
+    product = db.query(TrackedProduct).filter(TrackedProduct.id == product_id).first()
+    if not product:
+        return {"error": "product not found"}
+    url = product.product_url
+    try:
+        with httpx.Client(timeout=15, follow_redirects=True) as client:
+            resp = client.get(url, headers={
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                "Accept-Language": "ko-KR,ko;q=0.9",
+            })
+        m = re.search(r'<script id="__NEXT_DATA__"[^>]*>(.*?)</script>', resp.text, re.DOTALL)
+        if not m:
+            return {"error": "no NEXT_DATA", "status": resp.status_code, "url": url}
+        nd = json.loads(m.group(1))
+        detail = nd["props"]["pageProps"]["initialState"]["product"]["productDetail"]
+        da = detail.get("detailAttribute", {})
+        seo = da.get("seoInfo", {})
+        seller_tags = seo.get("sellerTags", [])
+        return {
+            "url": url,
+            "status": resp.status_code,
+            "seller_tags": seller_tags,
+            "seo_keys": list(seo.keys()) if seo else [],
+            "da_keys": list(da.keys())[:20],
+        }
+    except Exception as e:
+        return {"error": str(e), "url": url}
+
+
 @router.get("/debug/tag-baseline/{product_id}")
 def debug_tag_baseline(product_id: int, db: Session = Depends(get_db)):
     """기준값 포함 태그 이력 전체 조회."""
