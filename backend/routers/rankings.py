@@ -202,10 +202,44 @@ def get_tag_history(product_id: int, db: Session = Depends(get_db)):
 @router.get("/debug/commerce-tags/{naver_product_id}")
 def debug_commerce_tags(naver_product_id: str):
     """커머스 API 태그 조회 디버그."""
-    from backend.commerce import fetch_product_tags, _get_access_token
-    token = _get_access_token()
-    tags = fetch_product_tags(naver_product_id)
-    return {"token_ok": token is not None, "naver_product_id": naver_product_id, "tags": tags}
+    import os, time, base64, httpx
+    client_id = os.environ.get("NAVER_COMMERCE_CLIENT_ID")
+    client_secret = os.environ.get("NAVER_COMMERCE_CLIENT_SECRET")
+    env_ok = bool(client_id and client_secret)
+
+    token_err = None
+    token = None
+    if env_ok:
+        try:
+            import bcrypt
+            timestamp = str(int(time.time() * 1000))
+            password = f"{client_id}_{timestamp}".encode("utf-8")
+            hashed = bcrypt.hashpw(password, client_secret.encode("utf-8"))
+            sign = base64.b64encode(hashed).decode("utf-8")
+            resp = httpx.post(
+                "https://api.commerce.naver.com/external/v1/oauth2/token",
+                params={"client_id": client_id, "timestamp": timestamp,
+                        "client_secret_sign": sign, "grant_type": "client_credentials", "type": "SELF"},
+                headers={"content-type": "application/x-www-form-urlencoded"},
+                timeout=10,
+            )
+            data = resp.json()
+            token = data.get("access_token")
+            if not token:
+                token_err = f"status={resp.status_code} body={str(data)[:300]}"
+        except Exception as e:
+            token_err = str(e)
+
+    from backend.commerce import fetch_product_tags
+    tags = fetch_product_tags(naver_product_id) if token else None
+    return {
+        "env_ok": env_ok,
+        "client_id_set": bool(client_id),
+        "client_secret_set": bool(client_secret),
+        "token_ok": token is not None,
+        "token_err": token_err,
+        "tags": tags,
+    }
 
 
 @router.get("/debug/tag-baseline/{product_id}")
