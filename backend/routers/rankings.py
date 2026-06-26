@@ -199,6 +199,29 @@ def get_tag_history(product_id: int, db: Session = Depends(get_db)):
     ]
 
 
+@router.get("/debug/commerce-tags/{naver_product_id}")
+def debug_commerce_tags(naver_product_id: str):
+    """커머스 API 태그 조회 디버그."""
+    from backend.commerce import fetch_product_tags, _get_access_token
+    token = _get_access_token()
+    tags = fetch_product_tags(naver_product_id)
+    return {"token_ok": token is not None, "naver_product_id": naver_product_id, "tags": tags}
+
+
+@router.get("/debug/tag-baseline/{product_id}")
+def debug_tag_baseline(product_id: int, db: Session = Depends(get_db)):
+    """기준값 포함 태그 이력 전체 조회."""
+    from backend.models import ProductTagHistory
+    rows = (
+        db.query(ProductTagHistory)
+        .filter(ProductTagHistory.product_id == product_id)
+        .order_by(ProductTagHistory.changed_at.desc())
+        .limit(10)
+        .all()
+    )
+    return [{"old_tags": r.old_tags, "new_tags": r.new_tags, "changed_at": r.changed_at.isoformat()} for r in rows]
+
+
 @router.get("/products/{product_id}/title-history")
 def get_title_history(product_id: int, db: Session = Depends(get_db)):
     """상품 제목 변경 이력 (최근 30건)."""
