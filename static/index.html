@@ -332,62 +332,73 @@
 
     /* ── 급변동 알림 배너 ── */
     #rankAlertBanner {
-      background: linear-gradient(135deg, #ecfdf5 0%, #f0fdf4 100%);
-      border-bottom: 2px solid #bbf7d0;
-      padding: 10px 24px;
-      text-align: center;
-    }
-    #rankAlertBanner.has-drop {
-      background: linear-gradient(135deg, #ecfdf5 0%, #fff1f2 100%);
-      border-bottom-color: #fecaca;
+      background: #fffbeb;
+      border-bottom: 2px solid #fde68a;
+      padding: 8px 24px;
     }
     .alert-banner-inner {
       display: flex;
       align-items: center;
-      gap: 10px;
-      justify-content: center;
+      gap: 12px;
       flex-wrap: wrap;
+      max-width: 1280px;
+      margin: 0 auto;
     }
     .alert-banner-label {
-      font-size: .72rem;
-      font-weight: 800;
-      letter-spacing: .04em;
-      color: #15803d;
-      white-space: nowrap;
-      padding: 3px 10px;
-      background: #dcfce7;
-      border-radius: 20px;
+      font-size: .72rem; font-weight: 800; letter-spacing: .04em;
+      color: #92400e; white-space: nowrap;
+      padding: 3px 10px; background: #fef3c7; border-radius: 20px;
+      flex-shrink: 0;
     }
-    .alert-cards {
-      display: flex;
-      gap: 8px;
-      flex-wrap: wrap;
-      justify-content: center;
-      align-items: center;
+    .alert-mall-group {
+      display: flex; align-items: center; gap: 6px;
+      background: #fff; border: 1.5px solid #fde68a;
+      border-radius: 20px; padding: 4px 6px 4px 12px;
     }
-    .alert-card {
-      display: flex;
-      flex-direction: column;
-      gap: 1px;
-      background: #fff;
-      border: 1.5px solid #bbf7d0;
-      border-radius: 10px;
-      padding: 7px 13px;
-      font-size: .75rem;
-      min-width: 150px;
-      text-align: left;
-      box-shadow: 0 1px 4px rgba(0,0,0,.05);
+    .alert-mall-group.has-drop { border-color: #fca5a5; background: #fff5f5; }
+    .alert-mall-name { font-size: .78rem; font-weight: 700; color: #1a1a2e; }
+    .alert-report-btn {
+      background: #f59e0b; color: #fff;
+      border: none; border-radius: 14px;
+      padding: 3px 10px; font-size: .7rem; font-weight: 700;
+      cursor: pointer; white-space: nowrap; transition: opacity .2s;
     }
-    .alert-card.drop {
-      border-color: #fca5a5;
+    .alert-report-btn.has-drop { background: #ef4444; }
+    .alert-report-btn:hover { opacity: .85; }
+
+    /* ── 급변동 팝업 모달 ── */
+    #alertModal {
+      display: none; position: fixed; inset: 0;
+      background: rgba(0,0,0,.45); z-index: 1000;
+      align-items: center; justify-content: center;
     }
-    .alert-card-time  { color: #9ca3af; font-size: .68rem; }
-    .alert-card-prod  { font-weight: 700; color: #1a1a2e; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; max-width: 160px; line-height: 1.3; cursor: default; }
-    .alert-card-prod:hover { -webkit-line-clamp: unset; overflow: visible; position: relative; z-index: 10; background: #fff; box-shadow: 0 2px 8px rgba(0,0,0,.12); border-radius: 4px; padding: 2px 4px; margin: -2px -4px; }
-    .alert-card-rank  { display: flex; align-items: center; gap: 4px; }
-    .alert-card-kw    { color: #6b7280; font-size: .7rem; }
-    .alert-card-change.surge { color: #16a34a; font-weight: 800; }
-    .alert-card-change.drop  { color: #dc2626; font-weight: 800; }
+    #alertModal.open { display: flex; }
+    .alert-modal-box {
+      background: #fff; border-radius: 16px;
+      padding: 24px 28px 20px; width: min(520px, 95vw);
+      box-shadow: 0 12px 40px rgba(0,0,0,.22); max-height: 80vh; overflow-y: auto;
+    }
+    .alert-modal-header {
+      display: flex; align-items: center; justify-content: space-between;
+      margin-bottom: 16px;
+    }
+    .alert-modal-title { font-size: 1rem; font-weight: 700; color: #1a1a2e; }
+    .alert-modal-close {
+      background: none; border: none; font-size: 1.3rem;
+      cursor: pointer; color: #aaa; line-height: 1; padding: 0;
+    }
+    .alert-modal-close:hover { color: #555; }
+    .alert-modal-row {
+      display: flex; flex-direction: column; gap: 3px;
+      padding: 12px 0; border-bottom: 1px solid #f0f0f0; font-size: .83rem;
+    }
+    .alert-modal-row:last-child { border-bottom: none; }
+    .alert-modal-prod { font-weight: 700; color: #1a1a2e; line-height: 1.4; }
+    .alert-modal-kw { color: #6b7280; font-size: .75rem; }
+    .alert-modal-rank { display: flex; align-items: center; gap: 6px; margin-top: 2px; }
+    .alert-surge { color: #16a34a; font-weight: 800; }
+    .alert-drop  { color: #dc2626; font-weight: 800; }
+    .alert-modal-time { color: #bbb; font-size: .7rem; margin-left: auto; white-space: nowrap; }
 
     /* ── 랭킹 현황 키워드 행 ── */
     .rank-kw-row {
@@ -414,8 +425,19 @@
 <!-- ─── 급변동 알림 배너 ─── -->
 <div id="rankAlertBanner" style="display:none">
   <div class="alert-banner-inner">
-    <span class="alert-banner-label" id="alertBannerLabel">⚡ 순위 급변동</span>
-    <div class="alert-cards" id="alertCards"></div>
+    <span class="alert-banner-label">⚡ 순위 급변동</span>
+    <div id="alertMallGroups" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center"></div>
+  </div>
+</div>
+
+<!-- ─── 급변동 팝업 모달 ─── -->
+<div id="alertModal">
+  <div class="alert-modal-box">
+    <div class="alert-modal-header">
+      <div class="alert-modal-title" id="alertModalTitle"></div>
+      <button class="alert-modal-close" onclick="closeAlertModal()">✕</button>
+    </div>
+    <div id="alertModalBody"></div>
   </div>
 </div>
 
@@ -1461,43 +1483,72 @@ async function debugMatch(productId, pid, productName, keywords) {
 /* ════════════════════════════════
    급변동 알림 배너
 ════════════════════════════════ */
+let _alertByStore = {};
+
 async function loadRankAlerts() {
   try {
     const res = await fetch(`${API}/rankings/rank-changes`);
     const data = await res.json();
     const banner = document.getElementById('rankAlertBanner');
-    const cards  = document.getElementById('alertCards');
-    const label  = document.getElementById('alertBannerLabel');
+    const groups = document.getElementById('alertMallGroups');
 
     if (!data.length) { banner.style.display = 'none'; return; }
-
-    const hasDrop   = data.some(d => d.type === 'drop');
-    const hasSurge  = data.some(d => d.type === 'surge');
     banner.style.display = '';
-    banner.classList.toggle('has-drop', hasDrop && !hasSurge);
 
-    if (hasSurge && hasDrop) { label.textContent = '⚡ 순위 급변동'; }
-    else if (hasSurge)        { label.textContent = '🚀 순위 급상승'; }
-    else                       { label.textContent = '📉 순위 급하락'; }
+    // 몰(스토어)별 그룹핑
+    _alertByStore = {};
+    data.forEach(d => {
+      const s = d.store_name || '(미확인)';
+      if (!_alertByStore[s]) _alertByStore[s] = [];
+      _alertByStore[s].push(d);
+    });
 
-    cards.innerHTML = data.map(d => {
-      const isSurge = d.type === 'surge';
-      const sign    = isSurge ? `▲${Math.abs(d.diff)}계단` : `▼${Math.abs(d.diff)}계단`;
-      const time    = fmtDate(d.collected_at);
-      return `
-        <div class="alert-card ${isSurge ? '' : 'drop'}">
-          <div class="alert-card-time">${escH(d.store_name || '')}</div>
-          <div class="alert-card-prod" title="${escH(d.product_name)}">${escH(d.product_name)}</div>
-          <div class="alert-card-kw">${escH(d.keyword)}</div>
-          <div class="alert-card-rank">
-            <span class="alert-card-change ${isSurge ? 'surge' : 'drop'}">${sign}</span>
-            <span style="color:#9ca3af;font-size:.7rem">${d.prev_rank}위 → ${d.curr_rank}위</span>
-          </div>
-          <div style="font-size:.65rem;color:#bbb;margin-top:2px">${time}</div>
-        </div>`;
-    }).join('');
+    groups.innerHTML = Object.entries(_alertByStore)
+      .sort(([a], [b]) => a.localeCompare(b, 'ko'))
+      .map(([store, items]) => {
+        const hasDrop   = items.some(i => i.type === 'drop');
+        const hasSurge  = items.some(i => i.type === 'surge');
+        const label = hasDrop && hasSurge ? '급변동' : hasDrop ? '순위하락' : '순위상승';
+        return `
+          <div class="alert-mall-group ${hasDrop ? 'has-drop' : ''}">
+            <span class="alert-mall-name">🏪 ${escH(store)}</span>
+            <button class="alert-report-btn ${hasDrop ? 'has-drop' : ''}"
+                    onclick="showAlertModal('${escQ(store)}')">
+              ${label} 보고서 ${items.length}건 →
+            </button>
+          </div>`;
+      }).join('');
   } catch { /* 배너 로드 실패는 조용히 무시 */ }
 }
+
+function showAlertModal(storeName) {
+  const items = _alertByStore[storeName] || [];
+  document.getElementById('alertModalTitle').textContent = `🏪 ${storeName} — 순위 급변동 보고서`;
+  document.getElementById('alertModalBody').innerHTML = items.map(d => {
+    const isSurge = d.type === 'surge';
+    const sign = isSurge ? `▲${Math.abs(d.diff)}계단 상승` : `▼${Math.abs(d.diff)}계단 하락`;
+    return `
+      <div class="alert-modal-row">
+        <div class="alert-modal-prod">${escH(d.product_name)}</div>
+        <div class="alert-modal-kw">키워드: ${escH(d.keyword)}</div>
+        <div class="alert-modal-rank">
+          <span class="${isSurge ? 'alert-surge' : 'alert-drop'}">${sign}</span>
+          <span style="color:#9ca3af;font-size:.78rem">${d.prev_rank}위 → ${d.curr_rank != null ? d.curr_rank+'위' : '100위 밖'}</span>
+          <span class="alert-modal-time">${fmtDate(d.collected_at)}</span>
+        </div>
+      </div>`;
+  }).join('');
+  document.getElementById('alertModal').classList.add('open');
+}
+
+function closeAlertModal() {
+  document.getElementById('alertModal').classList.remove('open');
+}
+
+// 배경 클릭으로 닫기
+document.getElementById('alertModal').addEventListener('click', function(e) {
+  if (e.target === this) closeAlertModal();
+});
 
 /* ── 초기 로드 ── */
 loadRankings();
