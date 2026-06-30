@@ -12,7 +12,27 @@ from sqlalchemy import desc
 scheduler = BackgroundScheduler(timezone="Asia/Seoul")
 
 
+def _check_commerce_ip_and_alert() -> None:
+    """Commerce API IP 변경 감지 시 텔레그램으로 알림."""
+    from backend.commerce import check_commerce_ip
+    from backend.telegram import _send
+    result = check_commerce_ip()
+    if not result["ok"] and result.get("ip_blocked"):
+        ip = result["ip"]
+        msg = (
+            f"⚠️ <b>[커머스 API] IP 변경 감지</b>\n"
+            f"현재 서버 IP: <code>{ip}</code>\n\n"
+            f"네이버 스마트스토어 센터 → 외부 서비스 연동 → API 설정에서\n"
+            f"위 IP를 허용 IP로 등록해 주세요.\n"
+            f"등록 전까지 제목·태그 변경 감지가 작동하지 않습니다."
+        )
+        _send(msg)
+        import logging
+        logging.warning("Commerce API IP blocked. current_ip=%s", ip)
+
+
 def _run_collection():
+    _check_commerce_ip_and_alert()
     db = SessionLocal()
     try:
         products = db.query(TrackedProduct).filter(TrackedProduct.is_active == True).all()  # noqa: E712

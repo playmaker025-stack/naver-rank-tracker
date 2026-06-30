@@ -242,6 +242,44 @@ def debug_commerce_tags(naver_product_id: str):
     }
 
 
+@router.get("/debug/page-title/{product_id}")
+def debug_page_title(product_id: int, db: Session = Depends(get_db)):
+    """SmartStore 페이지 크롤링으로 상품명 필드 확인."""
+    import json, re as _re, httpx
+    product = db.query(TrackedProduct).filter(TrackedProduct.id == product_id).first()
+    if not product:
+        return {"error": "product not found"}
+    url = product.product_url
+    try:
+        with httpx.Client(timeout=15, follow_redirects=True) as client:
+            resp = client.get(url, headers={
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                "Accept-Language": "ko-KR,ko;q=0.9",
+            })
+        if resp.status_code != 200:
+            return {"error": f"HTTP {resp.status_code}", "url": url}
+        m = _re.search(r'<script id="__NEXT_DATA__"[^>]*>(.*?)</script>', resp.text, _re.DOTALL)
+        if not m:
+            return {"error": "no __NEXT_DATA__", "url": url}
+        nd = json.loads(m.group(1))
+        detail = nd["props"]["pageProps"]["initialState"]["product"]["productDetail"]
+        name_candidates = {
+            "name": detail.get("name"),
+            "channelProductDisplayName": detail.get("channelProductDisplayName"),
+            "productName": detail.get("productName"),
+        }
+        return {
+            "url": url,
+            "status": resp.status_code,
+            "stored_naver_title": product.naver_title,
+            "stored_product_name": product.product_name,
+            "name_candidates": name_candidates,
+            "all_detail_keys": list(detail.keys()),
+        }
+    except Exception as e:
+        return {"error": str(e), "url": url}
+
+
 @router.get("/debug/page-tags/{product_id}")
 def debug_page_tags(product_id: int, db: Session = Depends(get_db)):
     """SmartStore 페이지에서 태그 추출 테스트."""
@@ -460,20 +498,28 @@ def debug_search(keyword: str, db: Session = Depends(get_db)):
 @router.post("/collect/product/{product_id}")
 def collect_single_product(product_id: int, db: Session = Depends(get_db)):
     """특정 상품의 키워드만 즉시 수집 (텔레그램 알림 없음)."""
-    from backend.collector import _search_keyword
+    import re as _re
+    from backend.collector import _search_keyword, _fetch_page_metrics
+    from backend.models import ProductTitleHistory, ProductTagHistory
+    from backend.commerce import fetch_product_commerce_info
+
     product = db.get(TrackedProduct, product_id)
     if not product or not product.is_active:
         from fastapi import HTTPException
         raise HTTPException(status_code=404, detail="Product not found")
 
     now = datetime.now(timezone.utc)
+    found_title = None
     saved = 0
+
     for pk in product.keywords:
         items = _search_keyword(pk.keyword)
         rank = None
         for i, item in enumerate(items, start=1):
             if _item_matches_product(item, product):
                 rank = i
+                if found_title is None:
+                    found_title = _re.sub(r"<[^>]+>", "", item.get("title", "")).strip()
                 break
         db.add(ProductRankHistory(
             product_id=product.id,
@@ -482,6 +528,46 @@ def collect_single_product(product_id: int, db: Session = Depends(get_db)):
             collected_at=now,
         ))
         saved += 1
+
+    # 제목·태그 변경 감지
+    m = _fetch_page_metrics(product.product_url)
+    scraped_title = m.pop("scraped_title", None) if m else None
+
+    commerce_info = fetch_product_commerce_info(product.naver_product_id)
+    commerce_title = commerce_info["name"] if commerce_info else None
+    current_tags = commerce_info["tags"] if commerce_info else None
+
+    title_for_detection = scraped_title or commerce_title or found_title
+    if title_for_detection:
+        last_naver_title = product.naver_title or product.product_name
+        if title_for_detection != last_naver_title:
+            has_prior = product.naver_title is not None or db.query(ProductRankHistory).filter(
+                ProductRankHistory.product_id == product.id,
+                ProductRankHistory.collected_at < now,
+            ).first() is not None
+            if has_prior:
+                db.add(ProductTitleHistory(
+                    product_id=product.id,
+                    old_title=last_naver_title,
+                    new_title=title_for_detection,
+                    changed_at=now,
+                ))
+        product.naver_title = title_for_detection
+
+    if current_tags is not None:
+        current_tags_str = ",".join(sorted(current_tags))
+        last_tag_row = (
+            db.query(ProductTagHistory)
+            .filter(ProductTagHistory.product_id == product.id)
+            .order_by(ProductTagHistory.changed_at.desc())
+            .first()
+        )
+        last_tags_str = last_tag_row.new_tags if last_tag_row else None
+        if last_tags_str is None:
+            db.add(ProductTagHistory(product_id=product.id, old_tags="", new_tags=current_tags_str, changed_at=now))
+        elif current_tags_str != last_tags_str:
+            db.add(ProductTagHistory(product_id=product.id, old_tags=last_tags_str, new_tags=current_tags_str, changed_at=now))
+
     db.commit()
     return {"product_id": product_id, "product_name": product.product_name, "keywords_collected": saved}
 

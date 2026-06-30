@@ -155,7 +155,9 @@ def _get_keyword_items(keyword: str) -> list[dict]:
 
 
 def _fetch_page_metrics(product_url: str) -> dict:
-    """SmartStore 상품 페이지에서 리뷰수·평점·찜수 추출."""
+    """SmartStore 상품 페이지에서 리뷰수·평점·찜수·상품명 추출.
+    상품명은 'scraped_title' 키로 반환 — ProductPageMetrics DB 저장 전에 pop해서 사용.
+    """
     if not product_url or "smartstore.naver.com" not in product_url:
         return {}
     try:
@@ -177,7 +179,13 @@ def _fetch_page_metrics(product_url: str) -> dict:
         rating = round(float(score), 1) if score else None
         wc = detail.get("benefitSection", {}).get("wishCount") or detail.get("wishCount")
         wishlist_count = int(wc) if wc else None
-        return {"review_count": review_count, "rating": rating, "wishlist_count": wishlist_count}
+        scraped_title = (detail.get("name") or detail.get("channelProductDisplayName") or "").strip() or None
+        return {
+            "review_count": review_count,
+            "rating": rating,
+            "wishlist_count": wishlist_count,
+            "scraped_title": scraped_title,
+        }
     except Exception:
         return {}
 
@@ -193,7 +201,7 @@ def collect_product_rankings(db: Session, collected_at: datetime | None = None) 
         .all()
     )
 
-    from backend.commerce import fetch_product_tags
+    from backend.commerce import fetch_product_commerce_info
 
     keyword_cache: dict[str, list[dict]] = {}
     competitor_saved: set[str] = set()   # 키워드당 1회만 저장
@@ -201,9 +209,11 @@ def collect_product_rankings(db: Session, collected_at: datetime | None = None) 
     saved = 0
 
     for product in products:
-        # SmartStore 페이지 메트릭 수집
+        # SmartStore 페이지 크롤링: 메트릭 + 상품명 (한 번에)
+        scraped_title: str | None = None
         if product.id not in metrics_saved:
             m = _fetch_page_metrics(product.product_url)
+            scraped_title = m.pop("scraped_title", None)
             if m and any(v is not None for v in m.values()):
                 db.add(ProductPageMetrics(
                     product_id=product.id,
@@ -254,10 +264,19 @@ def collect_product_rankings(db: Session, collected_at: datetime | None = None) 
                     ))
                 competitor_saved.add(pk.keyword)
 
-        # 제목 변경 감지: naver_title(마지막 수집 제목)과 비교
-        if found_title:
+        # 태그 변경 감지용 커머스 API 조회
+        commerce_info = fetch_product_commerce_info(product.naver_product_id)
+        current_tags = commerce_info["tags"] if commerce_info else None
+
+        # 제목 변경 감지 우선순위:
+        # 1) 페이지 크롤링 (네이버 봇차단 429시 None)
+        # 2) 커머스 API 실시간 제목 (429 우회 가능, 판매자 인증 필요)
+        # 3) 검색 API 제목 (인덱스 반영 수일 소요 — 최후 폴백)
+        commerce_title = commerce_info["name"] if commerce_info else None
+        title_for_detection = scraped_title or commerce_title or found_title
+        if title_for_detection:
             last_naver_title = product.naver_title or product.product_name
-            if found_title != last_naver_title:
+            if title_for_detection != last_naver_title:
                 has_prior = product.naver_title is not None or db.query(ProductRankHistory).filter(
                     ProductRankHistory.product_id == product.id,
                     ProductRankHistory.collected_at < collected_at,
@@ -266,13 +285,12 @@ def collect_product_rankings(db: Session, collected_at: datetime | None = None) 
                     db.add(ProductTitleHistory(
                         product_id=product.id,
                         old_title=last_naver_title,
-                        new_title=found_title,
+                        new_title=title_for_detection,
                         changed_at=collected_at,
                     ))
-            product.naver_title = found_title
+            product.naver_title = title_for_detection
 
-        # 태그 변경 감지: 커머스 API로 현재 태그 조회
-        current_tags = fetch_product_tags(product.naver_product_id)
+        # 태그 변경 감지
         if current_tags is not None:
             current_tags_str = ",".join(sorted(current_tags))
             last_tag_row = (
