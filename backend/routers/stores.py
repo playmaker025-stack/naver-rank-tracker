@@ -32,6 +32,12 @@ class StoreTelegramUpdate(BaseModel):
     telegram_token_key: str | None = None
 
 
+class StoreInfoUpdate(BaseModel):
+    name: str | None = None
+    mall_name: str | None = None
+    store_url: str | None = None
+
+
 @router.get("", response_model=list[StoreOut])
 def list_stores(db: Session = Depends(get_db)):
     return db.query(Store).all()
@@ -41,6 +47,22 @@ def list_stores(db: Session = Depends(get_db)):
 def create_store(body: StoreCreate, db: Session = Depends(get_db)):
     store = Store(**body.model_dump())
     db.add(store)
+    db.commit()
+    db.refresh(store)
+    return store
+
+
+@router.patch("/{store_id}", response_model=StoreOut)
+def update_store_info(store_id: int, body: StoreInfoUpdate, db: Session = Depends(get_db)):
+    store = db.get(Store, store_id)
+    if not store:
+        raise HTTPException(status_code=404, detail="Store not found")
+    if body.name is not None:
+        store.name = body.name
+    if body.mall_name is not None:
+        store.mall_name = body.mall_name
+    if body.store_url is not None:
+        store.store_url = body.store_url
     db.commit()
     db.refresh(store)
     return store
