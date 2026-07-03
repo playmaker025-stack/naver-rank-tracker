@@ -422,6 +422,30 @@ def debug_server_ip():
         return {"error": str(e)}
 
 
+@router.get("/debug/proxy-ip")
+def debug_proxy_ip():
+    """FIXIE_URL 프록시 설정 및 실제 프록시를 통한 egress IP 확인용 (임시 디버그)."""
+    import os
+    import httpx
+    from urllib.parse import urlsplit
+
+    fixie_url = os.environ.get("FIXIE_URL")
+    if not fixie_url:
+        return {"fixie_url_set": False}
+
+    parsed = urlsplit(fixie_url)
+    masked_target = f"{parsed.hostname}:{parsed.port}"
+
+    result = {"fixie_url_set": True, "target": masked_target}
+    try:
+        with httpx.Client(proxy=fixie_url, timeout=10) as client:
+            r = client.get("https://api.ipify.org?format=json")
+            result["proxied_ip"] = r.json().get("ip")
+    except Exception as e:
+        result["proxy_error"] = str(e)
+    return result
+
+
 @router.get("/debug/env")
 def debug_env():
     """환경변수 주입 확인용 (키 이름만 반환)."""
