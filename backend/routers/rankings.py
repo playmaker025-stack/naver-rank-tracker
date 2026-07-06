@@ -199,28 +199,6 @@ def get_tag_history(product_id: int, db: Session = Depends(get_db)):
     ]
 
 
-@router.get("/debug/commerce-tags/{naver_product_id}")
-def debug_commerce_tags(naver_product_id: str):
-    """커머스 API 태그 조회 디버그 (FIXIE_URL 프록시 경유)."""
-    import os
-    from backend.commerce import check_commerce_ip, fetch_product_tags
-
-    client_id = os.environ.get("NAVER_COMMERCE_CLIENT_ID")
-    client_secret = os.environ.get("NAVER_COMMERCE_CLIENT_SECRET")
-    env_ok = bool(client_id and client_secret)
-
-    ip_check = check_commerce_ip() if env_ok else {"ok": False, "reason": "env_missing"}
-    tags = fetch_product_tags(naver_product_id) if ip_check.get("ok") else None
-    return {
-        "env_ok": env_ok,
-        "client_id_set": bool(client_id),
-        "client_secret_set": bool(client_secret),
-        "token_ok": ip_check.get("ok"),
-        "token_err": ip_check.get("reason"),
-        "tags": tags,
-    }
-
-
 @router.get("/debug/page-title/{product_id}")
 def debug_page_title(product_id: int, db: Session = Depends(get_db)):
     """SmartStore 페이지 크롤링으로 상품명 필드 확인."""
@@ -388,55 +366,6 @@ def get_rank_changes(threshold: int = 5, db: Session = Depends(get_db)):
                 })
     result.sort(key=lambda x: -abs(x["diff"]))
     return result
-
-
-@router.get("/debug/server-ip")
-def debug_server_ip():
-    """Railway 서버의 외부 IP 확인용."""
-    import httpx
-    try:
-        r = httpx.get("https://api.ipify.org?format=json", timeout=5)
-        return r.json()
-    except Exception as e:
-        return {"error": str(e)}
-
-
-@router.get("/debug/proxy-ip")
-def debug_proxy_ip():
-    """FIXIE_URL 프록시 설정 및 실제 프록시를 통한 egress IP 확인용 (임시 디버그)."""
-    import os
-    import httpx
-    from urllib.parse import urlsplit
-
-    fixie_url = os.environ.get("FIXIE_URL")
-    if not fixie_url:
-        return {"fixie_url_set": False}
-
-    parsed = urlsplit(fixie_url)
-    masked_target = f"{parsed.hostname}:{parsed.port}"
-
-    result = {"fixie_url_set": True, "target": masked_target}
-    try:
-        with httpx.Client(proxy=fixie_url, timeout=10) as client:
-            r = client.get("https://api.ipify.org?format=json")
-            result["proxied_ip"] = r.json().get("ip")
-    except Exception as e:
-        result["proxy_error"] = str(e)
-    return result
-
-
-@router.get("/debug/env")
-def debug_env():
-    """환경변수 주입 확인용 (키 이름만 반환)."""
-    import os
-    keys = sorted(os.environ.keys())
-    naver_id = os.environ.get("NAVER_CLIENT_ID", "NOT_SET")
-    naver_secret = os.environ.get("NAVER_CLIENT_SECRET", "NOT_SET")
-    return {
-        "NAVER_CLIENT_ID": naver_id[:6] + "..." if naver_id != "NOT_SET" else "NOT_SET",
-        "NAVER_CLIENT_SECRET": naver_secret[:4] + "..." if naver_secret != "NOT_SET" else "NOT_SET",
-        "all_env_keys": [k for k in keys if not k.startswith("RAILWAY_") and k not in ("PATH", "HOME", "USER")],
-    }
 
 
 @router.get("/debug/product-page")
