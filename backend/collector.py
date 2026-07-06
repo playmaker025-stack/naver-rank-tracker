@@ -157,8 +157,9 @@ def _get_keyword_items(keyword: str) -> list[dict] | None:
 
 
 def _fetch_page_metrics(product_url: str) -> dict:
-    """SmartStore 상품 페이지에서 리뷰수·평점·찜수·상품명 추출.
-    상품명은 'scraped_title' 키로 반환 — ProductPageMetrics DB 저장 전에 pop해서 사용.
+    """SmartStore 상품 페이지에서 리뷰수·평점·찜수·상품명·검색태그 추출.
+    상품명은 'scraped_title', 태그는 'scraped_tags' 키로 반환 — 둘 다
+    ProductPageMetrics DB 저장 전에 pop해서 사용 (해당 컬럼 없음).
     """
     if not product_url or "smartstore.naver.com" not in product_url:
         return {}
@@ -182,11 +183,14 @@ def _fetch_page_metrics(product_url: str) -> dict:
         wc = detail.get("benefitSection", {}).get("wishCount") or detail.get("wishCount")
         wishlist_count = int(wc) if wc else None
         scraped_title = (detail.get("name") or detail.get("channelProductDisplayName") or "").strip() or None
+        seller_tags = detail.get("detailAttribute", {}).get("seoInfo", {}).get("sellerTags", [])
+        scraped_tags = [t.get("text", "").strip() for t in seller_tags if t.get("text")] or None
         return {
             "review_count": review_count,
             "rating": rating,
             "wishlist_count": wishlist_count,
             "scraped_title": scraped_title,
+            "scraped_tags": scraped_tags,
         }
     except Exception:
         return {}
@@ -211,11 +215,13 @@ def collect_product_rankings(db: Session, collected_at: datetime | None = None) 
     saved = 0
 
     for product in products:
-        # SmartStore 페이지 크롤링: 메트릭 + 상품명 (한 번에)
+        # SmartStore 페이지 크롤링: 메트릭 + 상품명 + 태그 (한 번에)
         scraped_title: str | None = None
+        scraped_tags: list[str] | None = None
         if product.id not in metrics_saved:
             m = _fetch_page_metrics(product.product_url)
             scraped_title = m.pop("scraped_title", None)
+            scraped_tags = m.pop("scraped_tags", None)
             if m and any(v is not None for v in m.values()):
                 db.add(ProductPageMetrics(
                     product_id=product.id,
@@ -271,7 +277,13 @@ def collect_product_rankings(db: Session, collected_at: datetime | None = None) 
 
         # 태그 변경 감지용 커머스 API 조회
         commerce_info = fetch_product_commerce_info(product.naver_product_id)
-        current_tags = commerce_info["tags"] if commerce_info else None
+        commerce_tags = commerce_info["tags"] if commerce_info else None
+
+        # 태그 감지 우선순위 (제목 감지와 동일한 이유):
+        # 1) 페이지 크롤링 (네이버 봇차단 429시 None)
+        # 2) 커머스 API (429 우회 가능, 판매자 인증 필요) — 유일한 폴백이었던 것을
+        #    페이지 크롤링과 이중화. 하나가 막혀도 다른 쪽으로 계속 추적됨
+        tags_for_detection = scraped_tags if scraped_tags is not None else commerce_tags
 
         # 제목 변경 감지 우선순위:
         # 1) 페이지 크롤링 (네이버 봇차단 429시 None)
@@ -296,8 +308,8 @@ def collect_product_rankings(db: Session, collected_at: datetime | None = None) 
             product.naver_title = title_for_detection
 
         # 태그 변경 감지
-        if current_tags is not None:
-            current_tags_str = ",".join(sorted(current_tags))
+        if tags_for_detection is not None:
+            current_tags_str = ",".join(sorted(tags_for_detection))
             last_tag_row = (
                 db.query(ProductTagHistory)
                 .filter(ProductTagHistory.product_id == product.id)
