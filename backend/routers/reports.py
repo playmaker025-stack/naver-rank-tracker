@@ -96,8 +96,10 @@ def get_report(product_id: int, keyword: str, db: Session = Depends(get_db)):
     our_title = our_entry.title if our_entry else (product.product_name or "")
 
     # ── 가격 분석 (우리 상품 제외한 경쟁사 가격으로 통계) ──
-    competitor_prices = [c.price for c in current_competitors if c.price and not (c.naver_product_id == pid)]
-    our_price = our_entry.price if our_entry and our_entry.naver_product_id == pid else None
+    # _is_ours()로 일관되게 판별 — naver_product_id만 보면 카탈로그 ID 불일치로
+    # 우리 상품이 경쟁사로 잘못 집계되거나 our_price가 누락될 수 있음
+    competitor_prices = [c.price for c in current_competitors if c.price and not _is_ours(c)]
+    our_price = our_entry.price if our_entry else None
 
     # ── 키워드 최적화 분석 ──
     top10 = [c for c in current_competitors if c.search_rank <= 10]

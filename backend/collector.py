@@ -92,8 +92,10 @@ def fetch_product_info(product_url: str) -> dict | None:
     return {"naver_product_id": product_id, "product_name": "", "product_url": product_url}
 
 
-def _search_keyword(keyword: str) -> list[dict]:
-    """키워드로 네이버 쇼핑을 검색하고 결과 목록을 반환한다."""
+def _search_keyword(keyword: str) -> list[dict] | None:
+    """키워드로 네이버 쇼핑을 검색하고 결과 목록을 반환한다.
+    API 호출 자체가 실패하면 None (검색 결과가 0건인 것과 구분 — 호출자가
+    '순위 없음'으로 잘못 기록하지 않도록)."""
     try:
         with httpx.Client(timeout=10) as client:
             resp = client.get(
@@ -104,7 +106,7 @@ def _search_keyword(keyword: str) -> list[dict]:
             resp.raise_for_status()
             return resp.json().get("items", [])
     except Exception:
-        return []
+        return None
 
 
 def search_keyword_with_error(keyword: str) -> dict:
@@ -149,8 +151,8 @@ def _item_matches_product(item: dict, product: "TrackedProduct") -> bool:
     return False
 
 
-def _get_keyword_items(keyword: str) -> list[dict]:
-    """키워드로 네이버 쇼핑 검색 결과 반환."""
+def _get_keyword_items(keyword: str) -> list[dict] | None:
+    """키워드로 네이버 쇼핑 검색 결과 반환 (실패 시 None)."""
     return _search_keyword(keyword)
 
 
@@ -229,6 +231,9 @@ def collect_product_rankings(db: Session, collected_at: datetime | None = None) 
                 keyword_cache[pk.keyword] = _get_keyword_items(pk.keyword)
 
             items = keyword_cache[pk.keyword]
+            if items is None:
+                # 검색 API 호출 자체가 실패 — '순위 없음'으로 오기록하지 않고 이번 사이클 건너뜀
+                continue
             rank = None
             for i, item in enumerate(items, start=1):
                 if _item_matches_product(item, product):

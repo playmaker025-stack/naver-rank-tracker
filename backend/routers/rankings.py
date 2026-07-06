@@ -1,5 +1,5 @@
 import re
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 from sqlalchemy import desc
@@ -39,23 +39,32 @@ class KeywordTop10Out(BaseModel):
 @router.get("/products", response_model=list[ProductRankOut])
 def get_product_rankings(db: Session = Depends(get_db)):
     products = db.query(TrackedProduct).filter(TrackedProduct.is_active == True).all()  # noqa: E712
+    if not products:
+        return []
+    product_ids = [p.id for p in products]
+
+    # 상품×키워드 조합마다 개별 쿼리 대신 한 번에 조회 후 그룹당 최신 2건만 추림 (N+1 방지)
+    cutoff = datetime.now(timezone.utc) - timedelta(days=90)
+    rows = (
+        db.query(ProductRankHistory)
+        .filter(ProductRankHistory.product_id.in_(product_ids), ProductRankHistory.collected_at >= cutoff)
+        .order_by(desc(ProductRankHistory.collected_at))
+        .all()
+    )
+    latest_by_key: dict[tuple[int, str], list[ProductRankHistory]] = {}
+    for r in rows:
+        bucket = latest_by_key.setdefault((r.product_id, r.keyword), [])
+        if len(bucket) < 2:
+            bucket.append(r)
+
     result = []
     for product in products:
         for pk in product.keywords:
-            latest_two = (
-                db.query(ProductRankHistory)
-                .filter(
-                    ProductRankHistory.product_id == product.id,
-                    ProductRankHistory.keyword == pk.keyword,
-                )
-                .order_by(desc(ProductRankHistory.collected_at))
-                .limit(2)
-                .all()
-            )
-            if not latest_two:
+            bucket = latest_by_key.get((product.id, pk.keyword))
+            if not bucket:
                 continue
-            curr = latest_two[0]
-            prev_rank = latest_two[1].rank if len(latest_two) > 1 else None
+            curr = bucket[0]
+            prev_rank = bucket[1].rank if len(bucket) > 1 else None
             result.append(
                 ProductRankOut(
                     product_id=product.id,
@@ -74,23 +83,35 @@ def get_product_rankings(db: Session = Depends(get_db)):
 def get_all_rankings_history(limit: int = 60, db: Session = Depends(get_db)):
     """모든 추적 상품×키워드 조합의 히스토리를 한번에 반환."""
     products = db.query(TrackedProduct).filter(TrackedProduct.is_active == True).all()  # noqa: E712
+    if not products:
+        return []
+    product_ids = [p.id for p in products]
+
+    # 상품×키워드 조합마다 개별 쿼리 대신 한 번에 조회 후 그룹당 limit건만 추림 (N+1 방지)
+    cutoff = datetime.now(timezone.utc) - timedelta(days=90)
+    rows = (
+        db.query(ProductRankHistory)
+        .filter(ProductRankHistory.product_id.in_(product_ids), ProductRankHistory.collected_at >= cutoff)
+        .order_by(desc(ProductRankHistory.collected_at))
+        .all()
+    )
+    history_by_key: dict[tuple[int, str], list[ProductRankHistory]] = {}
+    for r in rows:
+        bucket = history_by_key.setdefault((r.product_id, r.keyword), [])
+        if len(bucket) < limit:
+            bucket.append(r)
+
     result = []
     for product in products:
         for pk in product.keywords:
-            rows = (
-                db.query(ProductRankHistory)
-                .filter(ProductRankHistory.product_id == product.id, ProductRankHistory.keyword == pk.keyword)
-                .order_by(desc(ProductRankHistory.collected_at))
-                .limit(limit)
-                .all()
-            )
-            if rows:
+            bucket = history_by_key.get((product.id, pk.keyword))
+            if bucket:
                 result.append({
                     "product_id": product.id,
                     "product_name": product.product_name,
                     "store_name": product.store.name,
                     "keyword": pk.keyword,
-                    "history": [{"rank": r.rank, "collected_at": r.collected_at.isoformat() + "Z"} for r in reversed(rows)],
+                    "history": [{"rank": r.rank, "collected_at": r.collected_at.isoformat() + "Z"} for r in reversed(bucket)],
                 })
     return result
 

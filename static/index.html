@@ -366,40 +366,6 @@
     .alert-report-btn.has-drop { background: #ef4444; }
     .alert-report-btn:hover { opacity: .85; }
 
-    /* ── 급변동 팝업 모달 ── */
-    #alertModal {
-      display: none; position: fixed; inset: 0;
-      background: rgba(0,0,0,.45); z-index: 1000;
-      align-items: center; justify-content: center;
-    }
-    #alertModal.open { display: flex; }
-    .alert-modal-box {
-      background: #fff; border-radius: 16px;
-      padding: 24px 28px 20px; width: min(520px, 95vw);
-      box-shadow: 0 12px 40px rgba(0,0,0,.22); max-height: 80vh; overflow-y: auto;
-    }
-    .alert-modal-header {
-      display: flex; align-items: center; justify-content: space-between;
-      margin-bottom: 16px;
-    }
-    .alert-modal-title { font-size: 1rem; font-weight: 700; color: #1a1a2e; }
-    .alert-modal-close {
-      background: none; border: none; font-size: 1.3rem;
-      cursor: pointer; color: #aaa; line-height: 1; padding: 0;
-    }
-    .alert-modal-close:hover { color: #555; }
-    .alert-modal-row {
-      display: flex; flex-direction: column; gap: 3px;
-      padding: 12px 0; border-bottom: 1px solid #f0f0f0; font-size: .83rem;
-    }
-    .alert-modal-row:last-child { border-bottom: none; }
-    .alert-modal-prod { font-weight: 700; color: #1a1a2e; line-height: 1.4; }
-    .alert-modal-kw { color: #6b7280; font-size: .75rem; }
-    .alert-modal-rank { display: flex; align-items: center; gap: 6px; margin-top: 2px; }
-    .alert-surge { color: #16a34a; font-weight: 800; }
-    .alert-drop  { color: #dc2626; font-weight: 800; }
-    .alert-modal-time { color: #bbb; font-size: .7rem; margin-left: auto; white-space: nowrap; }
-
     /* ── 랭킹 현황 키워드 행 ── */
     .rank-kw-row {
       display: flex; align-items: center; gap: 10px;
@@ -430,16 +396,6 @@
   </div>
 </div>
 
-<!-- ─── 급변동 팝업 모달 ─── -->
-<div id="alertModal">
-  <div class="alert-modal-box">
-    <div class="alert-modal-header">
-      <div class="alert-modal-title" id="alertModalTitle"></div>
-      <button class="alert-modal-close" onclick="closeAlertModal()">✕</button>
-    </div>
-    <div id="alertModalBody"></div>
-  </div>
-</div>
 
 <div class="tabs">
   <button class="tab active" onclick="switchTab('rankings')">📊 랭킹 현황</button>
@@ -610,13 +566,13 @@ async function loadRankings() {
     data.forEach(r => { if (r.collected_at > last) last = r.collected_at; });
     document.getElementById('lastCollected').textContent = `마지막 수집: ${fmtDate(last)}`;
 
-    // 스토어 → 제품 → 키워드 그룹핑
+    // 스토어 → 제품(product_id 기준) → 키워드 그룹핑
     const byStore = {};
     data.forEach(r => {
       if (!byStore[r.store_name]) byStore[r.store_name] = {};
       const prods = byStore[r.store_name];
-      if (!prods[r.product_name]) prods[r.product_name] = { product_id: r.product_id, keywords: [] };
-      prods[r.product_name].keywords.push(r);
+      if (!prods[r.product_id]) prods[r.product_id] = { product_id: r.product_id, product_name: r.product_name, keywords: [] };
+      prods[r.product_id].keywords.push(r);
     });
 
     // 가나다 오름순 정렬
@@ -630,14 +586,14 @@ async function loadRankings() {
           <span style="margin-left:auto;font-size:.75rem;color:#888;font-weight:400">${Object.keys(products).length}개 제품</span>
         </div>
         <div class="acc-store-body" id="body-rk-s${si}">
-          ${Object.entries(products).sort(([a], [b]) => a.localeCompare(b, 'ko')).map(([prodName, prod], pi) => {
+          ${Object.values(products).sort((a, b) => a.product_name.localeCompare(b.product_name, 'ko')).map((prod, pi) => {
             const bestRank = prod.keywords.reduce((b, k) => k.rank != null && (b == null || k.rank < b) ? k.rank : b, null);
             const summary = bestRank != null ? `최고 ${bestRank}위` : '100위 밖';
             return `
               <div class="acc-kw">
                 <div class="acc-kw-header" onclick="toggleAcc('rk-p${si}-${pi}')">
                   <span class="acc-arrow" id="arr-rk-p${si}-${pi}">▶</span>
-                  ${escH(prodName)}
+                  ${escH(prod.product_name)}
                   <span style="margin-left:auto;font-size:.75rem;color:#888;font-weight:400">${prod.keywords.length}개 키워드 · ${summary}</span>
                 </div>
                 <div class="acc-kw-body" id="body-rk-p${si}-${pi}">
@@ -680,13 +636,13 @@ async function loadTrends() {
 
     window._trendsData = data;
 
-    // 수집 이력으로 스토어→제품→키워드 그룹핑
+    // 수집 이력으로 스토어→제품(product_id 기준)→키워드 그룹핑
     const byStore = {};
     data.forEach((item, idx) => {
       if (!byStore[item.store_name]) byStore[item.store_name] = {};
       const prods = byStore[item.store_name];
-      if (!prods[item.product_name]) prods[item.product_name] = [];
-      prods[item.product_name].push({ ...item, _idx: idx });
+      if (!prods[item.product_id]) prods[item.product_id] = [];
+      prods[item.product_id].push({ ...item, _idx: idx });
     });
 
     // 수집 이력이 없는 신규 상품도 표시 (수집 버튼 사용 위해)
@@ -694,8 +650,8 @@ async function loadTrends() {
     allProducts.forEach(p => {
       if (seenProdIds.has(p.id)) return;
       if (!byStore[p.store_name]) byStore[p.store_name] = {};
-      if (!byStore[p.store_name][p.product_name]) {
-        byStore[p.store_name][p.product_name] = [{ _no_history: true, product_id: p.id, product_name: p.product_name, store_name: p.store_name, keywords: p.keywords }];
+      if (!byStore[p.store_name][p.id]) {
+        byStore[p.store_name][p.id] = [{ _no_history: true, product_id: p.id, product_name: p.product_name, store_name: p.store_name, keywords: p.keywords }];
       }
     });
 
@@ -708,7 +664,7 @@ async function loadTrends() {
     const sortedStores = Object.entries(byStore).sort(([a], [b]) => a.localeCompare(b, 'ko'));
 
     container.innerHTML = sortedStores.map(([storeName, products], si) => {
-      const sortedProds = Object.entries(products).sort(([a], [b]) => a.localeCompare(b, 'ko'));
+      const sortedProds = Object.values(products).sort((a, b) => a[0].product_name.localeCompare(b[0].product_name, 'ko'));
       return `
       <div class="acc-store">
         <div class="acc-store-header" onclick="toggleAcc('s${si}')">
@@ -717,8 +673,9 @@ async function loadTrends() {
           <span style="margin-left:auto;font-size:.75rem;color:#888;font-weight:400">${sortedProds.length}개 제품</span>
         </div>
         <div class="acc-store-body" id="body-s${si}">
-          ${sortedProds.map(([prodName, kwItems], pi) => {
+          ${sortedProds.map((kwItems, pi) => {
             const prodId = kwItems[0].product_id;
+            const prodName = kwItems[0].product_name;
             const noHistory = kwItems[0]._no_history;
             if (noHistory) {
               const kwList = (kwItems[0].keywords || []).join(', ') || '키워드 없음';
@@ -816,9 +773,10 @@ async function loadTitleHistory(productId, accId) {
       fetch(`${API}/rankings/products/${productId}/title-history`),
       fetch(`${API}/rankings/products/${productId}/tag-history`),
     ]);
+    if (!titleRes.ok || !tagRes.ok) throw new Error('fetch failed');
     const titleData = await titleRes.json();
     const tagData   = await tagRes.json();
-    if (!titleData.length && !tagData.length) { el.style.display = 'none'; return; }
+    if (!titleData.length && !tagData.length) { el.style.display = 'none'; el.dataset.loaded = '1'; return; }
 
     let html = '<div style="padding:10px 14px 6px;border-top:1px solid #f0f0f0">';
 
@@ -848,9 +806,13 @@ async function loadTitleHistory(productId, accId) {
     }
 
     html += '</div>';
+    el.style.display = '';
     el.innerHTML = html;
     el.dataset.loaded = '1';
-  } catch { el.style.display = 'none'; }
+  } catch (e) {
+    console.error('title/tag history load failed, will retry next open:', e);
+    el.style.display = 'none';
+  }
 }
 
 function initSparkline(idx) {
@@ -1377,8 +1339,7 @@ async function openChart(productId, keyword, productName) {
   modal.classList.add('open');
 
   const res = await fetch(`${API}/rankings/products/${productId}/history?keyword=${encodeURIComponent(keyword)}&limit=30`);
-  const raw = await res.json();
-  const data = [...raw].reverse(); // 오래된 순 정렬
+  const data = await res.json(); // 백엔드가 이미 오래된 순으로 반환함
 
   const labels = data.map(d => {
     const dt = new Date(d.collected_at);
@@ -1523,8 +1484,7 @@ async function loadRankAlerts() {
 
 function showAlertModal(storeName) {
   const items = _alertByStore[storeName] || [];
-  document.getElementById('alertModalTitle').textContent = `🏪 ${storeName} — 순위 급변동 보고서`;
-  document.getElementById('alertModalBody').innerHTML = items.map(d => {
+  const rows = items.map(d => {
     const isSurge = d.type === 'surge';
     const sign = isSurge ? `▲${Math.abs(d.diff)}계단 상승` : `▼${Math.abs(d.diff)}계단 하락`;
     return `
@@ -1538,17 +1498,32 @@ function showAlertModal(storeName) {
         </div>
       </div>`;
   }).join('');
-  document.getElementById('alertModal').classList.add('open');
-}
 
-function closeAlertModal() {
-  document.getElementById('alertModal').classList.remove('open');
+  // 팝업 모달 대신 진짜 새 창으로 열어서 메인 대시보드 옆에 띄워두고 볼 수 있게 함
+  const win = window.open('', '_blank', 'width=480,height=680,menubar=no,toolbar=no,location=no,status=no');
+  if (!win) { alert('팝업이 차단되었습니다. 브라우저에서 이 사이트의 팝업을 허용해 주세요.'); return; }
+  win.document.write(`<!DOCTYPE html><html lang="ko"><head><meta charset="UTF-8">
+<title>🏪 ${storeName} — 순위 급변동 보고서</title>
+<style>
+  * { box-sizing: border-box; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Apple SD Gothic Neo', 'Noto Sans KR', sans-serif;
+    margin: 0; padding: 22px 26px; background: #fff; color: #1a1a2e; }
+  h1 { font-size: 1rem; font-weight: 700; margin-bottom: 16px; }
+  .alert-modal-row { display: flex; flex-direction: column; gap: 3px; padding: 12px 0; border-bottom: 1px solid #f0f0f0; font-size: .83rem; }
+  .alert-modal-row:last-child { border-bottom: none; }
+  .alert-modal-prod { font-weight: 700; color: #1a1a2e; line-height: 1.4; }
+  .alert-modal-kw { color: #6b7280; font-size: .75rem; }
+  .alert-modal-rank { display: flex; align-items: center; gap: 6px; margin-top: 2px; }
+  .alert-surge { color: #16a34a; font-weight: 800; }
+  .alert-drop  { color: #dc2626; font-weight: 800; }
+  .alert-modal-time { color: #bbb; font-size: .7rem; margin-left: auto; white-space: nowrap; }
+</style></head>
+<body>
+  <h1>🏪 ${escH(storeName)} — 순위 급변동 보고서</h1>
+  ${rows}
+</body></html>`);
+  win.document.close();
 }
-
-// 배경 클릭으로 닫기
-document.getElementById('alertModal').addEventListener('click', function(e) {
-  if (e.target === this) closeAlertModal();
-});
 
 /* ── 초기 로드 ── */
 loadRankings();

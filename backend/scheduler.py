@@ -13,12 +13,20 @@ scheduler = BackgroundScheduler(timezone="Asia/Seoul")
 
 
 def _check_commerce_ip_and_alert() -> None:
-    """Commerce API IP 변경 감지 시 텔레그램으로 알림."""
+    """Commerce API 연동 실패(IP 차단, 프록시 오류, 자격증명 만료 등) 시 텔레그램으로 알림.
+    이전에는 'IP 차단' 문구가 정확히 일치할 때만 알림이 갔고, 프록시 연결 실패
+    같은 다른 종류의 실패는 조용히 넘어가 며칠간 감지가 죽어있어도 아무도 몰랐음."""
     from backend.commerce import check_commerce_ip
     from backend.telegram import _send
+    import logging
+
     result = check_commerce_ip()
-    if not result["ok"] and result.get("ip_blocked"):
-        ip = result["ip"]
+    if result["ok"]:
+        return
+
+    ip = result.get("ip", "unknown")
+    reason = result.get("reason", "unknown error")
+    if result.get("ip_blocked"):
         msg = (
             f"⚠️ <b>[커머스 API] IP 변경 감지</b>\n"
             f"현재 서버 IP: <code>{ip}</code>\n\n"
@@ -26,9 +34,15 @@ def _check_commerce_ip_and_alert() -> None:
             f"위 IP를 허용 IP로 등록해 주세요.\n"
             f"등록 전까지 제목·태그 변경 감지가 작동하지 않습니다."
         )
-        _send(msg)
-        import logging
-        logging.warning("Commerce API IP blocked. current_ip=%s", ip)
+    else:
+        msg = (
+            f"⚠️ <b>[커머스 API] 연동 실패</b>\n"
+            f"현재 서버 IP: <code>{ip}</code>\n"
+            f"사유: <code>{reason}</code>\n\n"
+            f"제목·태그 변경 감지가 작동하지 않고 있습니다."
+        )
+    _send(msg)
+    logging.warning("Commerce API check failed. current_ip=%s reason=%s", ip, reason)
 
 
 def _run_collection():
