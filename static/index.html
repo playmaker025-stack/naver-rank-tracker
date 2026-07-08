@@ -456,6 +456,7 @@
       <select id="productStoreSelect"><option value="">스토어 선택</option></select>
       <input id="productUrl" placeholder="상품 URL (스마트스토어 / 네이버 쇼핑)" />
       <input id="productName" placeholder="상품명 (비워두면 자동 조회)" />
+      <input id="productKeywords" placeholder="추적 키워드 (쉼표로 구분)" />
       <button class="btn btn-primary" onclick="addProduct()">추가</button>
     </div>
     <div id="productsContainer"><p class="empty-msg">로딩 중…</p></div>
@@ -1179,17 +1180,20 @@ async function addProduct() {
   const storeId = document.getElementById('productStoreSelect').value;
   const url = document.getElementById('productUrl').value.trim();
   const name = document.getElementById('productName').value.trim();
+  const keywords = document.getElementById('productKeywords').value
+    .split(',').map(k => k.trim()).filter(Boolean);
   if (!storeId || !url) { toast('스토어와 상품 URL을 입력하세요.'); return; }
 
   toast('상품 정보를 가져오는 중…');
   const res = await fetch(`${API}/products`, {
     method: 'POST', headers: {'Content-Type':'application/json'},
-    body: JSON.stringify({ store_id: parseInt(storeId), product_url: url, product_name: name })
+    body: JSON.stringify({ store_id: parseInt(storeId), product_url: url, product_name: name, keywords })
   });
   if (res.ok) {
     toast('상품이 추가되었습니다.');
     document.getElementById('productUrl').value = '';
     document.getElementById('productName').value = '';
+    document.getElementById('productKeywords').value = '';
     loadProducts();
   } else {
     const err = await res.json();

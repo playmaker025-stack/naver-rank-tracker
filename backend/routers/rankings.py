@@ -483,12 +483,14 @@ def collect_single_product(product_id: int, db: Session = Depends(get_db)):
         saved += 1
 
     # 제목·태그 변경 감지
-    m = _fetch_page_metrics(product.product_url)
+    m = _fetch_page_metrics(product.product_url, product.naver_product_id)
     scraped_title = m.pop("scraped_title", None) if m else None
+    scraped_tags = m.pop("scraped_tags", None) if m else None
 
     commerce_info = fetch_product_commerce_info(product.naver_product_id)
     commerce_title = commerce_info["name"] if commerce_info else None
-    current_tags = commerce_info["tags"] if commerce_info else None
+    commerce_tags = commerce_info["tags"] if commerce_info else None
+    tags_for_detection = scraped_tags if scraped_tags is not None else commerce_tags
 
     title_for_detection = scraped_title or commerce_title or found_title
     if title_for_detection:
@@ -507,8 +509,8 @@ def collect_single_product(product_id: int, db: Session = Depends(get_db)):
                 ))
         product.naver_title = title_for_detection
 
-    if current_tags is not None:
-        current_tags_str = ",".join(sorted(current_tags))
+    if tags_for_detection is not None:
+        current_tags_str = ",".join(sorted(tags_for_detection))
         last_tag_row = (
             db.query(ProductTagHistory)
             .filter(ProductTagHistory.product_id == product.id)

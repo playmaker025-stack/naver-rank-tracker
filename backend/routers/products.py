@@ -4,7 +4,6 @@ from sqlalchemy.orm import Session
 
 from backend.collector import fetch_product_info
 from backend.database import get_db
-from backend.keyword_extractor import extract_keywords_from_title
 from backend.models import ProductKeyword, Store, TrackedProduct
 
 router = APIRouter(prefix="/products", tags=["products"])
@@ -14,6 +13,7 @@ class ProductAdd(BaseModel):
     store_id: int
     product_url: str
     product_name: str = ""  # 빈 문자열이면 API로 자동 조회
+    keywords: list[str] = []  # 추적할 키워드 — 사용자가 직접 입력
 
 
 class ProductOut(BaseModel):
@@ -73,6 +73,12 @@ def add_product(body: ProductAdd, db: Session = Depends(get_db)):
     )
     if existing:
         existing.is_active = True
+        existing_kws = {pk.keyword for pk in existing.keywords}
+        for kw in body.keywords:
+            kw = kw.strip()
+            if kw and kw not in existing_kws:
+                existing_kws.add(kw)
+                db.add(ProductKeyword(product_id=existing.id, keyword=kw))
         db.commit()
         db.refresh(existing)
         return ProductOut(
@@ -96,9 +102,12 @@ def add_product(body: ProductAdd, db: Session = Depends(get_db)):
     db.add(product)
     db.flush()
 
-    keywords = extract_keywords_from_title(product_name)
-    for kw in keywords:
-        db.add(ProductKeyword(product_id=product.id, keyword=kw))
+    seen: set[str] = set()
+    for kw in body.keywords:
+        kw = kw.strip()
+        if kw and kw not in seen:
+            seen.add(kw)
+            db.add(ProductKeyword(product_id=product.id, keyword=kw))
 
     db.commit()
     db.refresh(product)

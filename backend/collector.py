@@ -156,10 +156,14 @@ def _get_keyword_items(keyword: str) -> list[dict] | None:
     return _search_keyword(keyword)
 
 
-def _fetch_page_metrics(product_url: str) -> dict:
+def _fetch_page_metrics(product_url: str, expected_product_id: str | None = None) -> dict:
     """SmartStore 상품 페이지에서 리뷰수·평점·찜수·상품명·검색태그 추출.
     상품명은 'scraped_title', 태그는 'scraped_tags' 키로 반환 — 둘 다
     ProductPageMetrics DB 저장 전에 pop해서 사용 (해당 컬럼 없음).
+
+    expected_product_id가 주어지면 리다이렉트 이후 최종 URL이 그 상품 ID를
+    가리키는지 확인한다 — 재고소진 시 유사상품으로 리다이렉트되는 등의
+    이유로 엉뚱한 상품의 제목·태그를 긁어오는 걸 방지.
     """
     if not product_url or "smartstore.naver.com" not in product_url:
         return {}
@@ -171,6 +175,10 @@ def _fetch_page_metrics(product_url: str) -> dict:
             })
         if resp.status_code != 200:
             return {}
+        if expected_product_id:
+            final_id = _extract_product_id_from_url(str(resp.url))
+            if final_id and final_id != expected_product_id:
+                return {}
         m = re.search(r'<script id="__NEXT_DATA__"[^>]*>(.*?)</script>', resp.text, re.DOTALL)
         if not m:
             return {}
@@ -184,7 +192,9 @@ def _fetch_page_metrics(product_url: str) -> dict:
         wishlist_count = int(wc) if wc else None
         scraped_title = (detail.get("name") or detail.get("channelProductDisplayName") or "").strip() or None
         seller_tags = detail.get("detailAttribute", {}).get("seoInfo", {}).get("sellerTags", [])
-        scraped_tags = [t.get("text", "").strip() for t in seller_tags if t.get("text")] or None
+        # 빈 리스트(태그 0개)와 추출 실패를 구분 — []를 None으로 뭉개면
+        # "판매자가 태그 다 지움"을 놓치고 오래된 커머스 API 값에 의존하게 됨
+        scraped_tags = [t.get("text", "").strip() for t in seller_tags if t.get("text")]
         return {
             "review_count": review_count,
             "rating": rating,
@@ -219,7 +229,7 @@ def collect_product_rankings(db: Session, collected_at: datetime | None = None) 
         scraped_title: str | None = None
         scraped_tags: list[str] | None = None
         if product.id not in metrics_saved:
-            m = _fetch_page_metrics(product.product_url)
+            m = _fetch_page_metrics(product.product_url, product.naver_product_id)
             scraped_title = m.pop("scraped_title", None)
             scraped_tags = m.pop("scraped_tags", None)
             if m and any(v is not None for v in m.values()):
