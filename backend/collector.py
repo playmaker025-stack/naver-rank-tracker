@@ -368,8 +368,14 @@ def collect_product_rankings(db: Session, collected_at: datetime | None = None) 
                     ))
                 competitor_saved.add(pk.keyword)
 
-        # 태그 변경 감지용 커머스 API 조회
-        commerce_info = fetch_product_commerce_info(product.naver_product_id)
+        # 태그 변경 감지용 커머스 API 조회.
+        # 커머스 API 앱은 판매자 계정 단위라 스토어마다 자격증명이 다르다.
+        # (예전엔 전 스토어가 하나의 자격증명을 써서 다른 스토어 상품은 전부 403이었다)
+        commerce_info = fetch_product_commerce_info(
+            product.naver_product_id,
+            product.store.commerce_id_key if product.store else None,
+            product.store.commerce_secret_key if product.store else None,
+        )
         commerce_tags = commerce_info["tags"] if commerce_info else None
 
         # 태그 감지 우선순위 (제목 감지와 동일한 이유):

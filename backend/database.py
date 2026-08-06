@@ -42,6 +42,8 @@ def _run_migrations():
     for col_def in [
         ("stores", "telegram_chat_id", "VARCHAR"),
         ("stores", "telegram_token_key", "VARCHAR"),
+        ("stores", "commerce_id_key", "VARCHAR"),
+        ("stores", "commerce_secret_key", "VARCHAR"),
         ("tracked_products", "naver_title", "VARCHAR"),
     ]:
         table, col, typ = col_def

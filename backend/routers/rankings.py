@@ -487,7 +487,11 @@ def collect_single_product(product_id: int, db: Session = Depends(get_db)):
     scraped_title = m.pop("scraped_title", None) if m else None
     scraped_tags = m.pop("scraped_tags", None) if m else None
 
-    commerce_info = fetch_product_commerce_info(product.naver_product_id)
+    commerce_info = fetch_product_commerce_info(
+        product.naver_product_id,
+        product.store.commerce_id_key if product.store else None,
+        product.store.commerce_secret_key if product.store else None,
+    )
     commerce_title = commerce_info["name"] if commerce_info else None
     commerce_tags = commerce_info["tags"] if commerce_info else None
     tags_for_detection = scraped_tags if scraped_tags is not None else commerce_tags

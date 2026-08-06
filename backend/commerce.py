@@ -8,8 +8,20 @@ import httpx
 
 _COMMERCE_BASE = "https://api.commerce.naver.com/external"
 
-# 토큰 캐시 (1시간 유효)
-_token_cache: dict = {"token": None, "expires_at": 0.0}
+# 기본 자격증명 env 변수명 (스토어 지정이 없을 때 사용)
+DEFAULT_ID_KEY = "NAVER_COMMERCE_CLIENT_ID"
+DEFAULT_SECRET_KEY = "NAVER_COMMERCE_CLIENT_SECRET"
+
+# 토큰 캐시 (1시간 유효). 스토어마다 자격증명이 다르므로 client_id별로 따로 캐싱한다.
+# 예전엔 캐시가 하나뿐이라 여러 스토어를 섞어 쓰면 남의 토큰을 재사용하게 된다.
+_token_cache: dict[str, dict] = {}
+
+
+def resolve_credentials(id_key: str | None, secret_key: str | None) -> tuple[str | None, str | None]:
+    """스토어에 지정된 env 변수명으로 자격증명을 읽는다. 지정이 없으면 기본값."""
+    client_id = os.environ.get(id_key or DEFAULT_ID_KEY)
+    client_secret = os.environ.get(secret_key or DEFAULT_SECRET_KEY)
+    return client_id, client_secret
 
 
 def _commerce_client() -> httpx.Client:
@@ -18,15 +30,16 @@ def _commerce_client() -> httpx.Client:
     return httpx.Client(proxy=proxy, timeout=10) if proxy else httpx.Client(timeout=10)
 
 
-def _get_access_token() -> str | None:
-    client_id = os.environ.get("NAVER_COMMERCE_CLIENT_ID")
-    client_secret = os.environ.get("NAVER_COMMERCE_CLIENT_SECRET")
+def _get_access_token(client_id: str | None = None, client_secret: str | None = None) -> str | None:
+    if client_id is None or client_secret is None:
+        client_id, client_secret = resolve_credentials(None, None)
     if not client_id or not client_secret:
         return None
 
     now = time.time()
-    if _token_cache["token"] and now < _token_cache["expires_at"] - 60:
-        return _token_cache["token"]
+    cached = _token_cache.get(client_id)
+    if cached and cached["token"] and now < cached["expires_at"] - 60:
+        return cached["token"]
 
     timestamp = str(int(now * 1000))
     password = f"{client_id}_{timestamp}".encode("utf-8")
@@ -50,8 +63,7 @@ def _get_access_token() -> str | None:
         token = data.get("access_token")
         expires_in = data.get("expires_in", 3600)
         if token:
-            _token_cache["token"] = token
-            _token_cache["expires_at"] = now + expires_in
+            _token_cache[client_id] = {"token": token, "expires_at": now + expires_in}
         return token
     except Exception:
         return None
@@ -65,18 +77,26 @@ def _get(channel_product_no: str, token: str) -> httpx.Response:
         )
 
 
-def fetch_product_commerce_info(channel_product_no: str) -> dict | None:
+def fetch_product_commerce_info(
+    channel_product_no: str,
+    id_key: str | None = None,
+    secret_key: str | None = None,
+) -> dict | None:
     """커머스 API로 상품명·검색태그를 한 번에 가져온다.
     반환: {"name": str | None, "tags": list[str]} 또는 None(API 실패 시)
+
+    id_key/secret_key는 해당 상품이 속한 스토어의 자격증명 env 변수명이다.
+    커머스 API 앱은 판매자 계정 단위라, 다른 스토어 상품을 조회하면 403이 난다.
     """
-    token = _get_access_token()
+    client_id, client_secret = resolve_credentials(id_key, secret_key)
+    token = _get_access_token(client_id, client_secret)
     if not token:
         return None
     try:
         resp = _get(channel_product_no, token)
         if resp.status_code == 401:
-            _token_cache["token"] = None
-            token = _get_access_token()
+            _token_cache.pop(client_id, None)
+            token = _get_access_token(client_id, client_secret)
             if not token:
                 return None
             resp = _get(channel_product_no, token)

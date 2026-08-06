@@ -23,6 +23,8 @@ class StoreOut(BaseModel):
     store_url: str
     telegram_chat_id: str | None = None
     telegram_token_key: str | None = None
+    commerce_id_key: str | None = None
+    commerce_secret_key: str | None = None
 
     model_config = {"from_attributes": True}
 
@@ -30,6 +32,12 @@ class StoreOut(BaseModel):
 class StoreTelegramUpdate(BaseModel):
     telegram_chat_id: str | None = None
     telegram_token_key: str | None = None
+
+
+class StoreCommerceUpdate(BaseModel):
+    """커머스 API 자격증명의 env 변수명. 값 자체가 아니라 변수명만 저장한다."""
+    commerce_id_key: str | None = None
+    commerce_secret_key: str | None = None
 
 
 class StoreInfoUpdate(BaseModel):
@@ -75,6 +83,20 @@ def update_store_telegram(store_id: int, body: StoreTelegramUpdate, db: Session 
         raise HTTPException(status_code=404, detail="Store not found")
     store.telegram_chat_id = body.telegram_chat_id or None
     store.telegram_token_key = body.telegram_token_key or None
+    db.commit()
+    db.refresh(store)
+    return store
+
+
+@router.patch("/{store_id}/commerce", response_model=StoreOut)
+def update_store_commerce(store_id: int, body: StoreCommerceUpdate, db: Session = Depends(get_db)):
+    """스토어가 쓸 커머스 API 자격증명의 env 변수명을 지정한다.
+    비워두면 기본값(NAVER_COMMERCE_CLIENT_ID/SECRET)을 쓴다."""
+    store = db.get(Store, store_id)
+    if not store:
+        raise HTTPException(status_code=404, detail="Store not found")
+    store.commerce_id_key = body.commerce_id_key or None
+    store.commerce_secret_key = body.commerce_secret_key or None
     db.commit()
     db.refresh(store)
     return store

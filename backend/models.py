@@ -13,6 +13,8 @@ class Store(Base):
     store_url: Mapped[str] = mapped_column(String, nullable=False)
     telegram_chat_id: Mapped[str | None] = mapped_column(String, nullable=True, comment="스토어 전용 텔레그램 채팅 ID")
     telegram_token_key: Mapped[str | None] = mapped_column(String, nullable=True, comment="사용할 봇 토큰 env 변수명 (기본: TELEGRAM_BOT_TOKEN)")
+    commerce_id_key: Mapped[str | None] = mapped_column(String, nullable=True, comment="커머스API Client ID env 변수명 (기본: NAVER_COMMERCE_CLIENT_ID)")
+    commerce_secret_key: Mapped[str | None] = mapped_column(String, nullable=True, comment="커머스API Secret env 변수명 (기본: NAVER_COMMERCE_CLIENT_SECRET)")
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
     products: Mapped[list["TrackedProduct"]] = relationship(back_populates="store")
