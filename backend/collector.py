@@ -1,6 +1,7 @@
 import json
-import os
+import random
 import re
+import time
 import httpx
 from datetime import datetime, timezone
 
@@ -17,14 +18,24 @@ from backend.models import (
     WatchKeyword,
 )
 
-NAVER_API_URL = "https://openapi.naver.com/v1/search/shop.json"
-SEARCH_DISPLAY = 100  # 최대 100개까지 조회
+# 네이버 쇼핑검색 API(openapi.naver.com/v1/search/shop.json)는 2026-07-31 종료됐고
+# 공식 대체 API가 없다(API HUB에도 쇼핑 검색은 없음). 대신 모바일 통합검색 HTML에
+# 임베드된 쇼핑 모듈 JSON에서 순위를 파싱한다. 과거 수집값과 대조해 종료된 API와
+# 동일한 랭킹 소스임을 확인했으나, 노출 깊이가 25위까지라 그 밖은 '순위 없음'이 된다.
+NAVER_SEARCH_URL = "https://m.search.naver.com/search.naver"
+SEARCH_DISPLAY = 25  # 모바일 통합검색 쇼핑모듈 상한 (페이지 파라미터로 확장 불가)
+
+# 데스크톱 UA로는 같은 모듈이 8개만 실려온다. 모바일 UA여야 25개가 나온다.
+MOBILE_UA = (
+    "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) "
+    "AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1"
+)
 
 
-def _naver_headers() -> dict:
+def _search_headers() -> dict:
     return {
-        "X-Naver-Client-Id": os.environ["NAVER_CLIENT_ID"],
-        "X-Naver-Client-Secret": os.environ["NAVER_CLIENT_SECRET"],
+        "User-Agent": MOBILE_UA,
+        "Accept-Language": "ko-KR,ko;q=0.9",
     }
 
 
@@ -67,65 +78,124 @@ def fetch_product_info(product_url: str) -> dict | None:
     except Exception:
         pass
 
-    # 2순위: 쇼핑 검색 API — 링크 URL에서 product_id 매칭
-    try:
-        with httpx.Client(timeout=10) as client:
-            resp = client.get(
-                NAVER_API_URL,
-                headers=_naver_headers(),
-                params={"query": product_id, "display": 20},
-            )
-            resp.raise_for_status()
-            items = resp.json().get("items", [])
-
-        for item in items:
-            link = item.get("link", "")
-            if re.search(rf"(?<!\d){re.escape(product_id)}(?!\d)", link):
-                return {
-                    "naver_product_id": product_id,
-                    "product_name": re.sub(r"<[^>]+>", "", item.get("title", "")),
-                    "product_url": link or product_url,
-                }
-    except Exception:
-        pass
-
+    # 2순위였던 쇼핑 검색 API는 종료됨. 상품 ID로 상품명을 역조회할 공개 경로가 없어
+    # 커머스 API가 실패하면 상품명 없이 등록하고 이후 수집 때 채워지도록 둔다.
     return {"naver_product_id": product_id, "product_name": "", "product_url": product_url}
 
 
-def _search_keyword(keyword: str) -> list[dict] | None:
-    """키워드로 네이버 쇼핑을 검색하고 결과 목록을 반환한다.
-    API 호출 자체가 실패하면 None (검색 결과가 0건인 것과 구분 — 호출자가
-    '순위 없음'으로 잘못 기록하지 않도록)."""
+def _extract_json_object(text: str, start: int) -> str | None:
+    """text[start]의 '{'부터 짝이 맞는 '}'까지를 잘라낸다.
+    상품명에 중괄호가 들어있어도 깨지지 않도록 문자열/이스케이프 상태를 추적한다."""
+    depth = 0
+    in_str = False
+    escaped = False
+    for i in range(start, len(text)):
+        ch = text[i]
+        if in_str:
+            if escaped:
+                escaped = False
+            elif ch == "\\":
+                escaped = True
+            elif ch == '"':
+                in_str = False
+            continue
+        if ch == '"':
+            in_str = True
+        elif ch == "{":
+            depth += 1
+        elif ch == "}":
+            depth -= 1
+            if depth == 0:
+                return text[start:i + 1]
+    return None
+
+
+def _parse_shopping_cards(html: str) -> list[dict]:
+    """통합검색 HTML에 임베드된 쇼핑 모듈 JSON에서 오가닉 상품 목록을 뽑아낸다.
+
+    반환 형식은 기존 쇼핑검색 API 응답과 호환되게 맞춘다(productId/link/title/
+    mallName/lprice). productId에는 카탈로그 ID가 아니라 스마트스토어 상품 ID
+    (channelProductId)를 넣는다 — 추적 대상 상품과 정확히 일치 비교하기 위함.
+    """
+    items: list[dict] = []
+    for m in re.finditer(r'\{"slotType":"CARD","data":\{"cardType":"ORGANIC_CARD"', html):
+        raw = _extract_json_object(html, m.start())
+        if not raw:
+            continue
+        # JS 리터럴이라 순수 JSON이 아니다: new Date(...) 와 undefined 를 정규화
+        raw = re.sub(r'new Date\((\"[^\"]*\")\)', r"\1", raw)
+        raw = re.sub(r":\s*undefined", ": null", raw)
+        try:
+            data = json.loads(raw).get("data", {})
+        except Exception:
+            continue
+
+        channel_product_id = str(data.get("channelProductId") or "")
+        if not channel_product_id:
+            continue
+        price = data.get("discountedSalePrice") or data.get("salePrice") or 0
+
+        items.append({
+            "productId": channel_product_id,
+            "link": data.get("productUrl")
+                    or f"https://smartstore.naver.com/main/products/{channel_product_id}",
+            # 검색어 부분이 <mark>로 감싸여 오므로 태그를 제거한다
+            "title": re.sub(r"<[^>]+>", "", data.get("productName") or ""),
+            "mallName": data.get("mallName") or "",
+            "lprice": str(price),
+            "rank": data.get("rank"),
+            "nvMid": str(data.get("nvMid") or ""),
+            "isAdultRestricted": bool(data.get("isAdultContentRestricted")),
+        })
+
+    items.sort(key=lambda x: x["rank"] if x["rank"] is not None else 10**6)
+    return items
+
+
+def _fetch_search_html(keyword: str) -> str | None:
+    # 키워드가 200개가 넘어 연속 요청하면 봇으로 판정돼 차단될 수 있다.
+    # 수집은 백그라운드 작업이라 느려도 문제없으므로 요청 간격을 둔다.
+    time.sleep(random.uniform(1.5, 3.5))
     try:
-        with httpx.Client(timeout=10) as client:
+        with httpx.Client(timeout=15, follow_redirects=True) as client:
             resp = client.get(
-                NAVER_API_URL,
-                headers=_naver_headers(),
-                params={"query": keyword, "display": SEARCH_DISPLAY, "sort": "sim"},
+                NAVER_SEARCH_URL,
+                headers=_search_headers(),
+                params={"query": keyword},
             )
             resp.raise_for_status()
-            return resp.json().get("items", [])
+            return resp.text
     except Exception:
         return None
 
 
+def _search_keyword(keyword: str) -> list[dict] | None:
+    """키워드로 네이버 쇼핑 순위를 조회하고 결과 목록을 반환한다.
+    조회 자체가 실패하면 None (검색 결과가 0건인 것과 구분 — 호출자가
+    '순위 없음'으로 잘못 기록하지 않도록)."""
+    html = _fetch_search_html(keyword)
+    if html is None:
+        return None
+    # 봇차단/캡차 페이지를 0건으로 오인하면 전 상품이 '순위 없음'으로 기록된다.
+    if "wtm_captcha" in html or "쇼핑 서비스 접속이 일시적으로 제한" in html:
+        return None
+    return _parse_shopping_cards(html)
+
+
 def search_keyword_with_error(keyword: str) -> dict:
-    """디버깅용: 에러 메시지까지 포함해서 반환한다."""
-    try:
-        with httpx.Client(timeout=10) as client:
-            resp = client.get(
-                NAVER_API_URL,
-                headers=_naver_headers(),
-                params={"query": keyword, "display": SEARCH_DISPLAY, "sort": "sim"},
-            )
-            return {
-                "status_code": resp.status_code,
-                "ok": resp.status_code == 200,
-                "items": resp.json().get("items", []) if resp.status_code == 200 else [],
-                "raw": resp.json() if resp.status_code != 200 else None,
-            }
-    except Exception as e:
-        return {"status_code": None, "ok": False, "items": [], "error": str(e)}
+    """디버깅용: 차단 여부와 원인까지 포함해서 반환한다."""
+    html = _fetch_search_html(keyword)
+    if html is None:
+        return {"status_code": None, "ok": False, "items": [], "error": "request failed"}
+    if "wtm_captcha" in html or "쇼핑 서비스 접속이 일시적으로 제한" in html:
+        return {"status_code": 200, "ok": False, "items": [], "error": "blocked (captcha)"}
+    items = _parse_shopping_cards(html)
+    return {
+        "status_code": 200,
+        "ok": True,
+        "items": items,
+        "raw": None if items else "no ORGANIC_CARD found (구조 변경 가능성)",
+    }
 
 
 def _item_matches_product(item: dict, product: "TrackedProduct") -> bool:
@@ -253,7 +323,8 @@ def collect_product_rankings(db: Session, collected_at: datetime | None = None) 
             rank = None
             for i, item in enumerate(items, start=1):
                 if _item_matches_product(item, product):
-                    rank = i
+                    # 네이버가 내려준 rank를 그대로 쓴다(순서 기반 추정보다 정확)
+                    rank = item.get("rank") or i
                     # 처음 발견된 제목을 기록
                     if found_title is None:
                         found_title = re.sub(r"<[^>]+>", "", item.get("title", "")).strip()
@@ -361,6 +432,10 @@ def collect_keyword_top10(db: Session, collected_at: datetime | None = None) -> 
     saved = 0
     for wk in watch_keywords:
         items = _search_keyword(wk.keyword)
+        if items is None:
+            # 조회 실패 — 이번 사이클은 건너뛴다. (예전엔 여기서 None을 그대로
+            # 슬라이싱해 TypeError가 나면서 collect_all 전체가 죽었다)
+            continue
         for rank, item in enumerate(items[:10], start=1):
             price_str = item.get("lprice", "0") or "0"
             try:
