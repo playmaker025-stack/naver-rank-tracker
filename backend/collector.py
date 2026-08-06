@@ -135,10 +135,19 @@ def _parse_shopping_cards(html: str) -> list[dict]:
             continue
         price = data.get("discountedSalePrice") or data.get("salePrice") or 0
 
+        # productUrl은 문자열이 아니라 {"pcUrl": ..., "mobileUrl": ...} 객체로 온다.
+        # (최상위 pcUrl/mobileUrl 키는 항상 null이라 쓸 수 없다)
+        url_obj = data.get("productUrl")
+        if isinstance(url_obj, dict):
+            link = url_obj.get("pcUrl") or url_obj.get("mobileUrl")
+        else:
+            link = url_obj
+        if not isinstance(link, str) or not link:
+            link = f"https://smartstore.naver.com/main/products/{channel_product_id}"
+
         items.append({
             "productId": channel_product_id,
-            "link": data.get("productUrl")
-                    or f"https://smartstore.naver.com/main/products/{channel_product_id}",
+            "link": link,
             # 검색어 부분이 <mark>로 감싸여 오므로 태그를 제거한다
             "title": re.sub(r"<[^>]+>", "", data.get("productName") or ""),
             "mallName": data.get("mallName") or "",
@@ -199,14 +208,14 @@ def search_keyword_with_error(keyword: str) -> dict:
 
 
 def _item_matches_product(item: dict, product: "TrackedProduct") -> bool:
-    """API 결과 한 건이 추적 상품과 일치하는지 판별한다.
+    """검색 결과 한 건이 추적 상품과 일치하는지 판별한다.
 
-    Naver Shopping API의 productId는 카탈로그 ID라서 SmartStore URL의
-    product ID와 다를 수 있다. link URL에서 숫자 경계 기반으로 정확히 매칭한다.
+    통합검색 파싱에서는 productId에 channelProductId(스마트스토어 상품ID)를
+    넣으므로 1)에서 바로 일치한다. 2)는 값 형태가 바뀌었을 때를 위한 보루다.
     """
     pid = product.naver_product_id
 
-    # 1) 카탈로그 productId 직접 일치
+    # 1) 상품 ID 직접 일치
     if item.get("productId") == pid:
         return True
 
@@ -214,8 +223,11 @@ def _item_matches_product(item: dict, product: "TrackedProduct") -> bool:
     # (?<!\d)pid(?!\d) → 앞뒤에 다른 숫자가 붙으면 매칭 안 됨
     # 예: pid="12345678"이 "123456789" 링크에 오탐되지 않음
     if pid and len(pid) >= 8:
+        # 네이버 JSON은 필드 형태가 예고 없이 바뀐다(productUrl이 문자열에서
+        # dict로 바뀐 적 있음). str이 아니면 매칭을 건너뛴다 — 여기서 예외가
+        # 나면 수집 전체가 죽는다.
         link = item.get("link", "")
-        if re.search(rf"(?<!\d){re.escape(pid)}(?!\d)", link):
+        if isinstance(link, str) and re.search(rf"(?<!\d){re.escape(pid)}(?!\d)", link):
             return True
 
     return False
