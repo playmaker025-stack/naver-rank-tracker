@@ -412,6 +412,70 @@ def debug_product_page(product_url: str):
         return {"error": str(e)}
 
 
+@router.get("/debug/commerce-check/{store_id}")
+def debug_commerce_check(store_id: int, db: Session = Depends(get_db)):
+    """[임시 진단] 스토어별 커머스 API 자격증명이 실제로 통하는지 확인.
+    시크릿 값은 절대 반환하지 않고, 설정 여부와 응답 코드/에러만 돌려준다."""
+    import base64 as _b64, time as _time, bcrypt as _bcrypt
+    from backend.models import Store as _Store
+    from backend.commerce import _commerce_client, _COMMERCE_BASE, resolve_credentials
+
+    store = db.get(_Store, store_id)
+    if not store:
+        raise HTTPException(status_code=404, detail="Store not found")
+
+    cid, csec = resolve_credentials(store.commerce_id_key, store.commerce_secret_key)
+    out = {
+        "store": store.name,
+        "id_key": store.commerce_id_key or "NAVER_COMMERCE_CLIENT_ID(기본)",
+        "id_set": bool(cid),
+        "secret_set": bool(csec),
+        "client_id_prefix": (cid[:6] + "...") if cid else None,
+    }
+    if not cid or not csec:
+        out["result"] = "env 변수가 비어 있음"
+        return out
+
+    now = _time.time()
+    ts = str(int(now * 1000))
+    sign = _b64.b64encode(_bcrypt.hashpw(f"{cid}_{ts}".encode(), csec.encode())).decode()
+    try:
+        with _commerce_client() as client:
+            r = client.post(
+                f"{_COMMERCE_BASE}/v1/oauth2/token",
+                params={"client_id": cid, "timestamp": ts, "client_secret_sign": sign,
+                        "grant_type": "client_credentials", "type": "SELF"},
+                headers={"content-type": "application/x-www-form-urlencoded"},
+            )
+        body = r.json()
+        out["token_status"] = r.status_code
+        out["token_ok"] = bool(body.get("access_token"))
+        if not body.get("access_token"):
+            out["token_error"] = body
+            return out
+    except Exception as e:
+        out["token_status"] = None
+        out["token_error"] = f"{type(e).__name__}: {e}"
+        return out
+
+    prod = (
+        db.query(TrackedProduct)
+        .filter(TrackedProduct.store_id == store_id, TrackedProduct.is_active == True)  # noqa: E712
+        .first()
+    )
+    if prod:
+        with _commerce_client() as client:
+            pr = client.get(
+                f"{_COMMERCE_BASE}/v2/products/channel-products/{prod.naver_product_id}",
+                headers={"Authorization": f"Bearer {body['access_token']}"},
+            )
+        out["product_id"] = prod.naver_product_id
+        out["product_status"] = pr.status_code
+        if pr.status_code != 200:
+            out["product_error"] = pr.text[:300]
+    return out
+
+
 @router.get("/debug/search")
 def debug_search(keyword: str, db: Session = Depends(get_db)):
     """키워드 검색 결과 원본 확인 (에러 포함)."""
