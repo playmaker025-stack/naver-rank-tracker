@@ -64,7 +64,20 @@ class ProductRankHistory(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
     product_id: Mapped[int] = mapped_column(Integer, ForeignKey("tracked_products.id"), nullable=False)
     keyword: Mapped[str] = mapped_column(String, nullable=False)
-    rank: Mapped[int | None] = mapped_column(Integer, nullable=True, comment="순위 (None=100위 밖)")
+    rank: Mapped[int | None] = mapped_column(
+        Integer, nullable=True,
+        comment="관측된 순위. None이면 max_observed_rank 밖 — 정확한 순위는 알 수 없음",
+    )
+    # rank=None이 '순위 없음'인지 '수집 실패'인지 구분되지 않아 생긴 필드.
+    # 쇼핑검색 API 종료 전에는 100위까지 봤으나 지금은 통합검색 상한(25위)까지만
+    # 보이므로, 관측 깊이를 함께 남겨야 과거·현재 데이터를 같은 의미로 읽을 수 있다.
+    observation_status: Mapped[str | None] = mapped_column(
+        String, nullable=True,
+        comment="OBSERVED | NOT_OBSERVED_WITHIN_LIMIT (수집 실패 회차는 행을 쓰지 않음)",
+    )
+    max_observed_rank: Mapped[int | None] = mapped_column(
+        Integer, nullable=True, comment="이 회차에 관측 가능했던 최대 순위 (현재 25, 과거 100)",
+    )
     collected_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
     product: Mapped["TrackedProduct"] = relationship(back_populates="rank_history")

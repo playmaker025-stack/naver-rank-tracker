@@ -110,54 +110,97 @@ def _extract_json_object(text: str, start: int) -> str | None:
     return None
 
 
-def _parse_shopping_cards(html: str) -> list[dict]:
+def _card_to_item(data: dict) -> dict | None:
+    """쇼핑 카드 하나를 기존 API 응답 형식으로 변환. 검증 실패 시 None.
+
+    productId에는 카탈로그 ID가 아니라 스마트스토어 상품 ID(channelProductId)를
+    넣는다 — 추적 대상 상품과 정확히 일치 비교하기 위함.
+    """
+    # 네 필드를 모두 확인한다. cardType만 보면 다른 종류의 오가닉 카드가
+    # 같은 형태로 섞여 들어와도 걸러내지 못한다.
+    if (
+        data.get("cardType") != "ORGANIC_CARD"
+        or data.get("sourceType") != "SAS"
+        or data.get("sasType") != "SHOPPING"
+    ):
+        return None
+
+    channel_product_id = str(data.get("channelProductId") or "")
+    if not channel_product_id.isdigit():
+        return None
+
+    # rank는 네이버가 주는 값만 쓴다. 없으면 그 카드는 무효 — 배열 위치로
+    # 순위를 지어내면 안 된다(틀린 순위가 맞는 순위처럼 저장된다).
+    rank = data.get("rank")
+    if not isinstance(rank, int) or isinstance(rank, bool) or rank < 1:
+        return None
+
+    price = data.get("discountedSalePrice") or data.get("salePrice") or 0
+
+    # productUrl은 문자열이 아니라 {"pcUrl": ..., "mobileUrl": ...} 객체로 온다.
+    # (최상위 pcUrl/mobileUrl 키는 항상 null이라 쓸 수 없다)
+    url_obj = data.get("productUrl")
+    link = url_obj.get("pcUrl") or url_obj.get("mobileUrl") if isinstance(url_obj, dict) else url_obj
+    if not isinstance(link, str) or not link:
+        link = f"https://smartstore.naver.com/main/products/{channel_product_id}"
+
+    return {
+        "productId": channel_product_id,
+        "link": link,
+        # 검색어 부분이 <mark>로 감싸여 오므로 태그를 제거한다
+        "title": re.sub(r"<[^>]+>", "", str(data.get("productName") or "")),
+        "mallName": str(data.get("mallName") or ""),
+        "lprice": str(price),
+        "rank": rank,
+        "nvMid": str(data.get("nvMid") or ""),
+        "isAdultRestricted": bool(data.get("isAdultContentRestricted")),
+    }
+
+
+def _parse_shopping_cards(html: str) -> list[dict] | None:
     """통합검색 HTML에 임베드된 쇼핑 모듈 JSON에서 오가닉 상품 목록을 뽑아낸다.
 
-    반환 형식은 기존 쇼핑검색 API 응답과 호환되게 맞춘다(productId/link/title/
-    mallName/lprice). productId에는 카탈로그 ID가 아니라 스마트스토어 상품 ID
-    (channelProductId)를 넣는다 — 추적 대상 상품과 정확히 일치 비교하기 위함.
+    반환값 구분:
+      list  — 파싱 성공 (빈 리스트 = 쇼핑 모듈 자체가 없음 = 정상적인 0건)
+      None  — 쇼핑 모듈은 있는데 유효 카드를 못 뽑음 = 구조 변경 의심, 수집 중단
+
+    이 구분이 중요한 이유: 구조가 바뀌어 0건이 되면 전 상품이 '순위 없음'으로
+    기록돼 순위가 통째로 사라진 것처럼 보인다. 조용히 틀린 데이터를 쌓느니
+    이번 회차를 버리는 게 낫다.
     """
     items: list[dict] = []
-    for m in re.finditer(r'\{"slotType":"CARD","data":\{"cardType":"ORGANIC_CARD"', html):
-        raw = _extract_json_object(html, m.start())
-        if not raw:
-            continue
-        # JS 리터럴이라 순수 JSON이 아니다: new Date(...) 와 undefined 를 정규화
-        raw = re.sub(r'new Date\((\"[^\"]*\")\)', r"\1", raw)
-        raw = re.sub(r":\s*undefined", ": null", raw)
-        try:
-            data = json.loads(raw).get("data", {})
-        except Exception:
-            continue
+    seen_ranks: set[int] = set()
+    module_present = False
 
-        channel_product_id = str(data.get("channelProductId") or "")
-        if not channel_product_id:
-            continue
-        price = data.get("discountedSalePrice") or data.get("salePrice") or 0
+    for m in re.finditer(r'"cardType"\s*:\s*"ORGANIC_CARD"', html):
+        module_present = True
+        start = html.rfind("{", 0, m.start())
+        # 카드 객체 시작점을 찾을 때까지 바깥으로 넓힌다
+        for _ in range(6):
+            if start < 0:
+                break
+            raw = _extract_json_object(html, start)
+            if raw and m.start() < start + len(raw):
+                # JS 리터럴이라 순수 JSON이 아니다: new Date(...)와 undefined를 정규화
+                normalized = re.sub(r'new Date\((\"[^\"]*\")\)', r"\1", raw)
+                normalized = re.sub(r":\s*undefined", ": null", normalized)
+                try:
+                    obj = json.loads(normalized)
+                except Exception:
+                    start = html.rfind("{", 0, start)
+                    continue
+                data = obj.get("data") if isinstance(obj.get("data"), dict) else obj
+                item = _card_to_item(data if isinstance(data, dict) else {})
+                if item and item["rank"] not in seen_ranks:
+                    seen_ranks.add(item["rank"])
+                    items.append(item)
+                break
+            start = html.rfind("{", 0, start)
 
-        # productUrl은 문자열이 아니라 {"pcUrl": ..., "mobileUrl": ...} 객체로 온다.
-        # (최상위 pcUrl/mobileUrl 키는 항상 null이라 쓸 수 없다)
-        url_obj = data.get("productUrl")
-        if isinstance(url_obj, dict):
-            link = url_obj.get("pcUrl") or url_obj.get("mobileUrl")
-        else:
-            link = url_obj
-        if not isinstance(link, str) or not link:
-            link = f"https://smartstore.naver.com/main/products/{channel_product_id}"
+    if module_present and not items:
+        return None
 
-        items.append({
-            "productId": channel_product_id,
-            "link": link,
-            # 검색어 부분이 <mark>로 감싸여 오므로 태그를 제거한다
-            "title": re.sub(r"<[^>]+>", "", data.get("productName") or ""),
-            "mallName": data.get("mallName") or "",
-            "lprice": str(price),
-            "rank": data.get("rank"),
-            "nvMid": str(data.get("nvMid") or ""),
-            "isAdultRestricted": bool(data.get("isAdultContentRestricted")),
-        })
-
-    items.sort(key=lambda x: x["rank"] if x["rank"] is not None else 10**6)
+    items.sort(key=lambda x: x["rank"])
     return items
 
 
@@ -199,11 +242,18 @@ def search_keyword_with_error(keyword: str) -> dict:
     if "wtm_captcha" in html or "쇼핑 서비스 접속이 일시적으로 제한" in html:
         return {"status_code": 200, "ok": False, "items": [], "error": "blocked (captcha)"}
     items = _parse_shopping_cards(html)
+    if items is None:
+        return {
+            "status_code": 200,
+            "ok": False,
+            "items": [],
+            "error": "parse invalid — 쇼핑 모듈은 있는데 유효 카드 0건 (JSON 구조 변경 의심)",
+        }
     return {
         "status_code": 200,
         "ok": True,
         "items": items,
-        "raw": None if items else "no ORGANIC_CARD found (구조 변경 가능성)",
+        "raw": None if items else "쇼핑 모듈 없음 (검색 결과 0건)",
     }
 
 
@@ -330,13 +380,14 @@ def collect_product_rankings(db: Session, collected_at: datetime | None = None) 
 
             items = keyword_cache[pk.keyword]
             if items is None:
-                # 검색 API 호출 자체가 실패 — '순위 없음'으로 오기록하지 않고 이번 사이클 건너뜀
+                # 조회 실패 또는 구조 변경 — '순위 없음'으로 오기록하지 않고 건너뜀
                 continue
             rank = None
-            for i, item in enumerate(items, start=1):
+            for item in items:
                 if _item_matches_product(item, product):
-                    # 네이버가 내려준 rank를 그대로 쓴다(순서 기반 추정보다 정확)
-                    rank = item.get("rank") or i
+                    # 네이버가 내려준 rank만 쓴다. 파서가 rank 없는 카드를 이미
+                    # 걸러내므로 여기서 순서로 대체할 일은 없어야 한다.
+                    rank = item["rank"]
                     # 처음 발견된 제목을 기록
                     if found_title is None:
                         found_title = re.sub(r"<[^>]+>", "", item.get("title", "")).strip()
@@ -347,12 +398,14 @@ def collect_product_rankings(db: Session, collected_at: datetime | None = None) 
                 keyword=pk.keyword,
                 rank=rank,
                 collected_at=collected_at,
+                observation_status="OBSERVED" if rank is not None else "NOT_OBSERVED_WITHIN_LIMIT",
+                max_observed_rank=SEARCH_DISPLAY,
             ))
             saved += 1
 
             # 경쟁사 스냅샷 저장 (키워드당 1회)
             if pk.keyword not in competitor_saved:
-                for i, item in enumerate(items[:20], start=1):
+                for item in items[:20]:
                     try:
                         price = int(item.get("lprice", "0") or "0") or None
                     except (ValueError, TypeError):
@@ -360,7 +413,9 @@ def collect_product_rankings(db: Session, collected_at: datetime | None = None) 
                     db.add(KeywordCompetitorSnapshot(
                         keyword=pk.keyword,
                         collected_at=collected_at,
-                        search_rank=i,
+                        # 배열 위치가 아니라 네이버가 준 실제 순위를 저장한다.
+                        # 위치를 쓰면 원본에 공백·누락이 생겼을 때 이력이 조용히 어긋난다.
+                        search_rank=item["rank"],
                         naver_product_id=item.get("productId"),
                         title=re.sub(r"<[^>]+>", "", item.get("title", "")),
                         mall_name=item.get("mallName", ""),
@@ -454,7 +509,7 @@ def collect_keyword_top10(db: Session, collected_at: datetime | None = None) -> 
             # 조회 실패 — 이번 사이클은 건너뛴다. (예전엔 여기서 None을 그대로
             # 슬라이싱해 TypeError가 나면서 collect_all 전체가 죽었다)
             continue
-        for rank, item in enumerate(items[:10], start=1):
+        for item in items[:10]:
             price_str = item.get("lprice", "0") or "0"
             try:
                 price = int(price_str)
@@ -464,7 +519,8 @@ def collect_keyword_top10(db: Session, collected_at: datetime | None = None) -> 
             db.add(
                 KeywordTop10History(
                     watch_keyword_id=wk.id,
-                    rank=rank,
+                    # 배열 위치가 아니라 네이버가 준 실제 순위
+                    rank=item["rank"],
                     naver_product_id=item.get("productId", ""),
                     product_name=re.sub(r"<[^>]+>", "", item.get("title", "")),
                     mall_name=item.get("mallName", ""),

@@ -45,6 +45,8 @@ def _run_migrations():
         ("stores", "commerce_id_key", "VARCHAR"),
         ("stores", "commerce_secret_key", "VARCHAR"),
         ("tracked_products", "naver_title", "VARCHAR"),
+        ("product_rank_history", "observation_status", "VARCHAR"),
+        ("product_rank_history", "max_observed_rank", "INTEGER"),
     ]:
         table, col, typ = col_def
         try:

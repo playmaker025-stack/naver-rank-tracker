@@ -5,7 +5,13 @@ from pydantic import BaseModel
 from sqlalchemy import desc
 from sqlalchemy.orm import Session
 
-from backend.collector import collect_all, _search_keyword, _item_matches_product, search_keyword_with_error
+from backend.collector import (
+    collect_all,
+    _search_keyword,
+    _item_matches_product,
+    search_keyword_with_error,
+    SEARCH_DISPLAY,
+)
 from backend.database import get_db
 from backend.telegram import send_rank_alert, send_collection_summary
 from backend.models import KeywordTop10History, ProductRankHistory, ProductTitleHistory, Store, TrackedProduct, WatchKeyword
@@ -467,10 +473,14 @@ def collect_single_product(product_id: int, db: Session = Depends(get_db)):
 
     for pk in product.keywords:
         items = _search_keyword(pk.keyword)
+        if items is None:
+            # 조회 실패/구조 변경 — '순위 없음'으로 오기록하지 않고 건너뛴다
+            continue
         rank = None
-        for i, item in enumerate(items, start=1):
+        for item in items:
             if _item_matches_product(item, product):
-                rank = i
+                # 배열 위치가 아니라 네이버가 준 실제 순위
+                rank = item["rank"]
                 if found_title is None:
                     found_title = _re.sub(r"<[^>]+>", "", item.get("title", "")).strip()
                 break
@@ -479,6 +489,8 @@ def collect_single_product(product_id: int, db: Session = Depends(get_db)):
             keyword=pk.keyword,
             rank=rank,
             collected_at=now,
+            observation_status="OBSERVED" if rank is not None else "NOT_OBSERVED_WITHIN_LIMIT",
+            max_observed_rank=SEARCH_DISPLAY,
         ))
         saved += 1
 
