@@ -23,7 +23,14 @@ from backend.models import (
 # 임베드된 쇼핑 모듈 JSON에서 순위를 파싱한다. 과거 수집값과 대조해 종료된 API와
 # 동일한 랭킹 소스임을 확인했으나, 노출 깊이가 25위까지라 그 밖은 '순위 없음'이 된다.
 NAVER_SEARCH_URL = "https://m.search.naver.com/search.naver"
-SEARCH_DISPLAY = 25  # 모바일 통합검색 쇼핑모듈 상한 (페이지 파라미터로 확장 불가)
+
+# 모바일 통합검색 쇼핑모듈 상한. 페이지 파라미터(page/pagingIndex/start/pageSize/
+# shopPage)와 where=m_shop, ssc=tab.m_shop.all 모두 무시되어 확장 불가.
+# 여기서 나온 순위는 PC 네이버쇼핑 순위와 일치함을 육안 대조로 확인했다
+# (2026-08-06, '크로스미니 팟' 11위까지 / '제우스 코일' 일치).
+# 따라서 1~25위는 PC 기준 실제 순위이고, 미관측은 'PC 26위 이하'까지만 말할 수 있다.
+# PC 1페이지가 40개라 26~40위와 41위 이하는 구분되지 않는다.
+SEARCH_DISPLAY = 25
 
 # 데스크톱 UA로는 같은 모듈이 8개만 실려온다. 모바일 UA여야 25개가 나온다.
 MOBILE_UA = (
