@@ -158,11 +158,13 @@ def _cleanup_old_snapshots(keep_days: int = 50):
 
 def start_scheduler():
     # CronTrigger에 timezone 명시 — Railway 서버는 UTC이므로 KST(UTC+9) 변환
-    # 10:00 KST / 15:00 KST / 19:00 KST — 1일 3회 수집
+    # 10:00 KST / 19:00 KST — 1일 2회 수집.
+    # 쇼핑검색 API 종료 후 통합검색 파싱으로 전환하면서 3회에서 2회로 줄였다.
+    # 키워드 244개 × 회당 1요청이라 3회면 하루 732요청이 되는데, 공식 API가 아니라
+    # 봇으로 판정되면 유일하게 남은 수집 경로가 막힌다.
     kst = "Asia/Seoul"
-    scheduler.add_job(_run_collection, CronTrigger(hour=10, minute=0, timezone=kst), id="collect_morning",   replace_existing=True)
-    scheduler.add_job(_run_collection, CronTrigger(hour=15, minute=0, timezone=kst), id="collect_afternoon", replace_existing=True)
-    scheduler.add_job(_run_collection, CronTrigger(hour=19, minute=0, timezone=kst), id="collect_evening",   replace_existing=True)
+    scheduler.add_job(_run_collection, CronTrigger(hour=10, minute=0, timezone=kst), id="collect_morning", replace_existing=True)
+    scheduler.add_job(_run_collection, CronTrigger(hour=19, minute=0, timezone=kst), id="collect_evening", replace_existing=True)
     scheduler.add_job(_cleanup_old_snapshots, CronTrigger(day_of_week="sun", hour=3, minute=0, timezone=kst), id="cleanup_snapshots", replace_existing=True)
     scheduler.start()
 
