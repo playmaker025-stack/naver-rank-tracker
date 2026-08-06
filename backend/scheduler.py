@@ -46,6 +46,28 @@ def _check_commerce_ip_and_alert() -> None:
 
 
 def _run_collection():
+    """수집 실행 래퍼. 예외가 나도 반드시 알림이 가도록 감싼다.
+
+    2026-08-01~08-05에 네이버 쇼핑검색 API 종료로 collect_all이 매번 예외를 던졌는데,
+    여기서 잡지 않아 아래 알림 코드까지 도달하지 못했고 5일간 아무도 모른 채
+    데이터가 비어 있었다. 조용히 죽는 것만은 막는다."""
+    import logging
+    try:
+        _run_collection_inner()
+    except Exception as e:
+        logging.exception("수집 실패")
+        try:
+            from backend.telegram import _send
+            _send(
+                f"🚨 <b>순위 수집 실패</b>\n"
+                f"<code>{type(e).__name__}: {e}</code>\n\n"
+                f"순위 데이터가 쌓이지 않고 있습니다. 서버 로그를 확인해 주세요."
+            )
+        except Exception:
+            logging.exception("실패 알림 발송도 실패")
+
+
+def _run_collection_inner():
     _check_commerce_ip_and_alert()
     db = SessionLocal()
     try:
