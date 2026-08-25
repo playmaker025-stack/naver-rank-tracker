@@ -77,6 +77,75 @@ def _get(channel_product_no: str, token: str) -> httpx.Response:
         )
 
 
+def _pick_channel_name(data: dict) -> tuple[str | None, str | None]:
+    """채널 노출명과 그 출처 경로를 찾는다.
+
+    채널 상품 블록 이름이 응답마다 달라서(channelProduct /
+    smartstoreChannelProduct) 후보를 순서대로 본다. 2026-08-25에
+    `channelProduct.channelProductDisplayName` 하나만 보다가 전부 None을 받고
+    원상품명으로 조용히 폴백하고 있던 걸 발견해서 후보를 넓혔다.
+    """
+    candidates = [
+        ("smartstoreChannelProduct", "channelProductName"),
+        ("smartstoreChannelProduct", "channelProductDisplayName"),
+        ("channelProduct", "channelProductDisplayName"),
+        ("channelProduct", "channelProductName"),
+    ]
+    for block, key in candidates:
+        val = (data.get(block) or {}).get(key)
+        if isinstance(val, str) and val.strip():
+            return val.strip(), f"{block}.{key}"
+    return None, None
+
+
+def fetch_product_commerce_debug(
+    channel_product_no: str,
+    id_key: str | None = None,
+    secret_key: str | None = None,
+) -> dict | None:
+    """응답 구조 확인용 — 최상위 키와 '이름'류 필드만 추려서 반환.
+
+    전체 payload를 그대로 노출하면 주문·판매자 정보까지 딸려 나오므로
+    키 이름에 name이 들어간 문자열 필드만 경로와 함께 뽑는다.
+    """
+    client_id, client_secret = resolve_credentials(id_key, secret_key)
+    token = _get_access_token(client_id, client_secret)
+    if not token:
+        return None
+    try:
+        resp = _get(channel_product_no, token)
+        if resp.status_code != 200:
+            return {"http_status": resp.status_code}
+        data = resp.json()
+    except Exception as exc:
+        return {"error": f"{type(exc).__name__}: {exc}"}
+
+    found: dict[str, str] = {}
+
+    def walk(node, path="", depth=0):
+        if depth > 3 or len(found) >= 40:
+            return
+        if isinstance(node, dict):
+            for k, v in node.items():
+                p = f"{path}.{k}" if path else k
+                if isinstance(v, str) and "name" in k.lower() and v.strip():
+                    found[p] = v
+                elif isinstance(v, (dict, list)):
+                    walk(v, p, depth + 1)
+        elif isinstance(node, list):
+            for i, v in enumerate(node[:3]):
+                walk(v, f"{path}[{i}]", depth + 1)
+
+    walk(data)
+    channel_name, channel_path = _pick_channel_name(data)
+    return {
+        "top_level_keys": list(data.keys()),
+        "name_fields": found,
+        "picked_channel_name": channel_name,
+        "picked_from": channel_path,
+    }
+
+
 def fetch_product_commerce_info(
     channel_product_no: str,
     id_key: str | None = None,
@@ -107,7 +176,7 @@ def fetch_product_commerce_info(
         # 원상품명(originProduct.name)을 우선하면 채널 노출명만 바뀐 수정을
         # 영영 못 잡는다 — 검색 결과에는 새 제목이 뜨는데 이력엔 안 남는다.
         origin_name = (data.get("originProduct") or {}).get("name")
-        channel_name = (data.get("channelProduct") or {}).get("channelProductDisplayName")
+        channel_name, channel_path = _pick_channel_name(data)
         name = channel_name or origin_name
         seller_tags = (
             data.get("originProduct", {})
@@ -119,6 +188,7 @@ def fetch_product_commerce_info(
         return {
             "name": name,
             "channel_name": channel_name,
+            "channel_name_path": channel_path,
             "origin_name": origin_name,
             "tags": tags,
         }

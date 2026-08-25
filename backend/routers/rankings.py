@@ -417,10 +417,34 @@ def debug_commerce_title(product_id: int, db: Session = Depends(get_db)):
         "naver_product_id": product.naver_product_id,
         "commerce_ok": info is not None,
         "channel_name": info["channel_name"] if info else None,
+        "channel_name_path": info["channel_name_path"] if info else None,
         "origin_name": info["origin_name"] if info else None,
         "used_name": info["name"] if info else None,
         "stored_naver_title": product.naver_title,
         "app_display_name": product.product_name,
+    }
+
+
+@router.get("/debug/commerce-raw/{product_id}")
+def debug_commerce_raw(product_id: int, db: Session = Depends(get_db)):
+    """커머스 API 응답의 최상위 키와 '이름'류 필드만 확인.
+
+    채널 노출명이 실제로 어느 경로에 오는지 몰라서 추측으로 필드를 고르면
+    조용히 None을 받고 엉뚱한 값으로 폴백한다 — 한 번 눈으로 보고 정한다.
+    """
+    from backend.commerce import fetch_product_commerce_debug
+
+    product = db.get(TrackedProduct, product_id)
+    if not product:
+        return {"error": "product not found"}
+    return {
+        "product_id": product_id,
+        "store": product.store.name if product.store else None,
+        **(fetch_product_commerce_debug(
+            product.naver_product_id,
+            product.store.commerce_id_key if product.store else None,
+            product.store.commerce_secret_key if product.store else None,
+        ) or {"error": "commerce api failed"}),
     }
 
 
