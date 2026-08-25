@@ -1,6 +1,7 @@
 import json
 import random
 import re
+import threading
 import time
 import httpx
 from datetime import datetime, timezone
@@ -345,6 +346,98 @@ def _fetch_page_metrics(product_url: str, expected_product_id: str | None = None
         return {}
 
 
+# 수집이 겹쳐 돌면 두 실행이 각자 옛 naver_title을 읽고 같은 변경을 두 번 기록한다.
+# (2026-08-05 03:22/03:27에 4개 상품이 동일한 이력을 중복 저장한 원인)
+# 전체 수집은 키워드 244개 × 대기 1.5~3.5초라 10분 넘게 걸려서, 스케줄러 실행 중에
+# 수동 수집 버튼을 누르면 쉽게 겹친다. Railway는 단일 인스턴스라 프로세스 락으로 충분하다.
+collect_lock = threading.Lock()
+
+
+def _norm(text: str | None) -> str:
+    """비교용 정규화. 커머스 API와 검색 카드가 같은 제목을 공백 개수만 다르게
+    내려주는 경우가 있어, 그대로 비교하면 없는 제목 변경이 기록된다."""
+    return re.sub(r"\s+", " ", text or "").strip()
+
+
+def _same_title_change_recorded(db: Session, product_id: int, old_title: str, new_title: str) -> bool:
+    """직전 이력이 지금 쓰려는 것과 같은 전환인지 (공백 무시)."""
+    last = (
+        db.query(ProductTitleHistory)
+        .filter(ProductTitleHistory.product_id == product_id)
+        .order_by(ProductTitleHistory.changed_at.desc())
+        .first()
+    )
+    if not last:
+        return False
+    return _norm(last.old_title) == _norm(old_title) and _norm(last.new_title) == _norm(new_title)
+
+
+def record_title_and_tag_changes(
+    db: Session,
+    product: TrackedProduct,
+    collected_at: datetime,
+    scraped_title: str | None,
+    scraped_tags: list[str] | None,
+    commerce_info: dict | None,
+    found_title: str | None,
+) -> None:
+    """제목·태그 변경을 감지해 이력에 남긴다. 전체 수집과 단건 수집이 함께 쓴다.
+
+    양쪽에 복붙해두면 한쪽만 고쳐지고 다른 쪽이 조용히 어긋난다 — 디버그
+    엔드포인트가 프록시를 안 타서 3일을 헤맸던 것과 같은 종류의 사고다.
+    """
+    commerce_title = commerce_info["name"] if commerce_info else None
+    commerce_tags = commerce_info["tags"] if commerce_info else None
+
+    # 제목 감지 우선순위:
+    # 1) 페이지 크롤링 (네이버 봇차단 429시 None — 현재 전 상품 차단 상태)
+    # 2) 커머스 API 채널 노출명 (429 우회 가능, 판매자 인증 필요)
+    # 3) 검색 결과 제목 (인덱스 반영 수일 소요 — 최후 폴백, 25위 밖이면 없음)
+    title_for_detection = scraped_title or commerce_title or found_title
+    if title_for_detection:
+        last_title = product.naver_title or product.product_name
+        if _norm(title_for_detection) != _norm(last_title):
+            has_prior = product.naver_title is not None or db.query(ProductRankHistory).filter(
+                ProductRankHistory.product_id == product.id,
+                ProductRankHistory.collected_at < collected_at,
+            ).first() is not None
+            if has_prior and not _same_title_change_recorded(db, product.id, last_title, title_for_detection):
+                db.add(ProductTitleHistory(
+                    product_id=product.id,
+                    old_title=last_title,
+                    new_title=title_for_detection,
+                    changed_at=collected_at,
+                ))
+        product.naver_title = title_for_detection
+
+    # 태그 감지 우선순위는 제목과 동일 (커머스 API가 유일한 실질 소스인 상태)
+    tags_for_detection = scraped_tags if scraped_tags is not None else commerce_tags
+    if tags_for_detection is not None:
+        current_tags_str = ",".join(sorted(_norm(t) for t in tags_for_detection if _norm(t)))
+        last_tag_row = (
+            db.query(ProductTagHistory)
+            .filter(ProductTagHistory.product_id == product.id)
+            .order_by(ProductTagHistory.changed_at.desc())
+            .first()
+        )
+        last_tags_str = last_tag_row.new_tags if last_tag_row else None
+        if last_tags_str is None:
+            # 최초 수집: 이력 없이 기준값만 기록
+            db.add(ProductTagHistory(
+                product_id=product.id,
+                old_tags="",
+                new_tags=current_tags_str,
+                changed_at=collected_at,
+            ))
+        elif _norm(current_tags_str) != _norm(last_tags_str):
+            db.add(ProductTagHistory(
+                product_id=product.id,
+                old_tags=last_tags_str,
+                new_tags=current_tags_str,
+                changed_at=collected_at,
+            ))
+
+
 def collect_product_rankings(db: Session, collected_at: datetime | None = None) -> int:
     """활성화된 모든 추적 상품의 키워드별 순위를 수집한다."""
     if collected_at is None:
@@ -430,7 +523,7 @@ def collect_product_rankings(db: Session, collected_at: datetime | None = None) 
                     ))
                 competitor_saved.add(pk.keyword)
 
-        # 태그 변경 감지용 커머스 API 조회.
+        # 제목·태그 변경 감지용 커머스 API 조회.
         # 커머스 API 앱은 판매자 계정 단위라 스토어마다 자격증명이 다르다.
         # (예전엔 전 스토어가 하나의 자격증명을 써서 다른 스토어 상품은 전부 403이었다)
         commerce_info = fetch_product_commerce_info(
@@ -438,61 +531,14 @@ def collect_product_rankings(db: Session, collected_at: datetime | None = None) 
             product.store.commerce_id_key if product.store else None,
             product.store.commerce_secret_key if product.store else None,
         )
-        commerce_tags = commerce_info["tags"] if commerce_info else None
 
-        # 태그 감지 우선순위 (제목 감지와 동일한 이유):
-        # 1) 페이지 크롤링 (네이버 봇차단 429시 None)
-        # 2) 커머스 API (429 우회 가능, 판매자 인증 필요) — 유일한 폴백이었던 것을
-        #    페이지 크롤링과 이중화. 하나가 막혀도 다른 쪽으로 계속 추적됨
-        tags_for_detection = scraped_tags if scraped_tags is not None else commerce_tags
-
-        # 제목 변경 감지 우선순위:
-        # 1) 페이지 크롤링 (네이버 봇차단 429시 None)
-        # 2) 커머스 API 실시간 제목 (429 우회 가능, 판매자 인증 필요)
-        # 3) 검색 API 제목 (인덱스 반영 수일 소요 — 최후 폴백)
-        commerce_title = commerce_info["name"] if commerce_info else None
-        title_for_detection = scraped_title or commerce_title or found_title
-        if title_for_detection:
-            last_naver_title = product.naver_title or product.product_name
-            if title_for_detection != last_naver_title:
-                has_prior = product.naver_title is not None or db.query(ProductRankHistory).filter(
-                    ProductRankHistory.product_id == product.id,
-                    ProductRankHistory.collected_at < collected_at,
-                ).first() is not None
-                if has_prior:
-                    db.add(ProductTitleHistory(
-                        product_id=product.id,
-                        old_title=last_naver_title,
-                        new_title=title_for_detection,
-                        changed_at=collected_at,
-                    ))
-            product.naver_title = title_for_detection
-
-        # 태그 변경 감지
-        if tags_for_detection is not None:
-            current_tags_str = ",".join(sorted(tags_for_detection))
-            last_tag_row = (
-                db.query(ProductTagHistory)
-                .filter(ProductTagHistory.product_id == product.id)
-                .order_by(ProductTagHistory.changed_at.desc())
-                .first()
-            )
-            last_tags_str = last_tag_row.new_tags if last_tag_row else None
-            if last_tags_str is None:
-                # 최초 수집: 이력 없이 기준값만 기록
-                db.add(ProductTagHistory(
-                    product_id=product.id,
-                    old_tags="",
-                    new_tags=current_tags_str,
-                    changed_at=collected_at,
-                ))
-            elif current_tags_str != last_tags_str:
-                db.add(ProductTagHistory(
-                    product_id=product.id,
-                    old_tags=last_tags_str,
-                    new_tags=current_tags_str,
-                    changed_at=collected_at,
-                ))
+        record_title_and_tag_changes(
+            db, product, collected_at,
+            scraped_title=scraped_title,
+            scraped_tags=scraped_tags,
+            commerce_info=commerce_info,
+            found_title=found_title,
+        )
 
     db.commit()
     return saved
@@ -543,8 +589,17 @@ def collect_keyword_top10(db: Session, collected_at: datetime | None = None) -> 
 
 
 def collect_all(db: Session) -> dict:
-    """전체 수집 실행 (스케줄러에서 호출)."""
-    now = datetime.now(timezone.utc)
-    product_count = collect_product_rankings(db, now)
-    keyword_count = collect_keyword_top10(db, now)
-    return {"products": product_count, "keywords": keyword_count, "collected_at": now.isoformat()}
+    """전체 수집 실행 (스케줄러에서 호출).
+
+    이미 수집이 돌고 있으면 {"skipped": True}를 돌려주고 그냥 빠진다 —
+    겹쳐 돌면 제목 변경 이력이 중복 기록된다(collect_lock 주석 참고).
+    """
+    if not collect_lock.acquire(blocking=False):
+        return {"skipped": True, "reason": "이미 수집이 진행 중입니다"}
+    try:
+        now = datetime.now(timezone.utc)
+        product_count = collect_product_rankings(db, now)
+        keyword_count = collect_keyword_top10(db, now)
+        return {"products": product_count, "keywords": keyword_count, "collected_at": now.isoformat()}
+    finally:
+        collect_lock.release()

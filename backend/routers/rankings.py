@@ -331,6 +331,99 @@ def get_title_history(product_id: int, db: Session = Depends(get_db)):
     ]
 
 
+@router.get("/recent-changes")
+def get_recent_changes(days: int = 7, db: Session = Depends(get_db)):
+    """최근 N일 제목·태그 변경을 전 상품 통합해서 최신순으로 반환.
+
+    상품 아코디언을 하나씩 열어야만 이력이 보여서, 55개 중 뭐가 언제 바뀌었는지
+    한눈에 볼 방법이 없었다. 순위 추이 탭 상단 요약이 이 응답을 쓴다.
+    """
+    from backend.models import ProductTagHistory
+
+    cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+    products = {p.id: p for p in db.query(TrackedProduct).all()}
+
+    def _meta(product_id: int) -> dict | None:
+        p = products.get(product_id)
+        if not p:
+            return None
+        return {
+            "product_id": p.id,
+            "product_name": p.product_name,
+            "store_name": p.store.name if p.store else "",
+        }
+
+    changes: list[dict] = []
+
+    for r in (
+        db.query(ProductTitleHistory)
+        .filter(ProductTitleHistory.changed_at >= cutoff)
+        .order_by(desc(ProductTitleHistory.changed_at))
+        .all()
+    ):
+        meta = _meta(r.product_id)
+        if meta:
+            changes.append({
+                **meta,
+                "type": "title",
+                "changed_at": r.changed_at.isoformat() + "Z",
+                "old_title": r.old_title,
+                "new_title": r.new_title,
+            })
+
+    for r in (
+        db.query(ProductTagHistory)
+        .filter(ProductTagHistory.changed_at >= cutoff, ProductTagHistory.old_tags != "")
+        .order_by(desc(ProductTagHistory.changed_at))
+        .all()
+    ):
+        meta = _meta(r.product_id)
+        if not meta:
+            continue
+        old = [t for t in r.old_tags.split(",") if t]
+        new = [t for t in r.new_tags.split(",") if t]
+        changes.append({
+            **meta,
+            "type": "tag",
+            "changed_at": r.changed_at.isoformat() + "Z",
+            "removed": [t for t in old if t not in new],
+            "added": [t for t in new if t not in old],
+        })
+
+    changes.sort(key=lambda c: c["changed_at"], reverse=True)
+    return {"days": days, "changes": changes}
+
+
+@router.get("/debug/commerce-title/{product_id}")
+def debug_commerce_title(product_id: int, db: Session = Depends(get_db)):
+    """커머스 API의 채널 노출명 vs 원상품명 대조.
+
+    검색에는 새 제목이 뜨는데 이력엔 안 남던 상품(pid=8 등)이 정말
+    '채널 노출명만 바뀐' 경우인지 확인하는 용도.
+    """
+    from backend.commerce import fetch_product_commerce_info
+
+    product = db.get(TrackedProduct, product_id)
+    if not product:
+        return {"error": "product not found"}
+    info = fetch_product_commerce_info(
+        product.naver_product_id,
+        product.store.commerce_id_key if product.store else None,
+        product.store.commerce_secret_key if product.store else None,
+    )
+    return {
+        "product_id": product_id,
+        "store": product.store.name if product.store else None,
+        "naver_product_id": product.naver_product_id,
+        "commerce_ok": info is not None,
+        "channel_name": info["channel_name"] if info else None,
+        "origin_name": info["origin_name"] if info else None,
+        "used_name": info["name"] if info else None,
+        "stored_naver_title": product.naver_title,
+        "app_display_name": product.product_name,
+    }
+
+
 @router.get("/rank-changes")
 def get_rank_changes(threshold: int = 5, db: Session = Depends(get_db)):
     """24시간 내 최대 급변동 항목 반환.
@@ -458,89 +551,75 @@ def debug_search(keyword: str, db: Session = Depends(get_db)):
 def collect_single_product(product_id: int, db: Session = Depends(get_db)):
     """특정 상품의 키워드만 즉시 수집 (텔레그램 알림 없음)."""
     import re as _re
-    from backend.collector import _search_keyword, _fetch_page_metrics
-    from backend.models import ProductTitleHistory, ProductTagHistory
+    from backend.collector import (
+        _search_keyword,
+        _fetch_page_metrics,
+        collect_lock,
+        record_title_and_tag_changes,
+    )
     from backend.commerce import fetch_product_commerce_info
+    from fastapi import HTTPException
 
     product = db.get(TrackedProduct, product_id)
     if not product or not product.is_active:
-        from fastapi import HTTPException
         raise HTTPException(status_code=404, detail="Product not found")
 
-    now = datetime.now(timezone.utc)
-    found_title = None
-    saved = 0
+    # 전체 수집과 겹치면 둘 다 옛 naver_title을 읽어 같은 변경을 두 번 기록한다.
+    if not collect_lock.acquire(blocking=False):
+        raise HTTPException(status_code=409, detail="이미 수집이 진행 중입니다. 잠시 후 다시 시도해 주세요.")
 
-    for pk in product.keywords:
-        items = _search_keyword(pk.keyword)
-        if items is None:
-            # 조회 실패/구조 변경 — '순위 없음'으로 오기록하지 않고 건너뛴다
-            continue
-        rank = None
-        for item in items:
-            if _item_matches_product(item, product):
-                # 배열 위치가 아니라 네이버가 준 실제 순위
-                rank = item["rank"]
-                if found_title is None:
-                    found_title = _re.sub(r"<[^>]+>", "", item.get("title", "")).strip()
-                break
-        db.add(ProductRankHistory(
-            product_id=product.id,
-            keyword=pk.keyword,
-            rank=rank,
-            collected_at=now,
-            observation_status="OBSERVED" if rank is not None else "NOT_OBSERVED_WITHIN_LIMIT",
-            max_observed_rank=SEARCH_DISPLAY,
-        ))
-        saved += 1
+    try:
+        now = datetime.now(timezone.utc)
+        found_title = None
+        saved = 0
 
-    # 제목·태그 변경 감지
-    m = _fetch_page_metrics(product.product_url, product.naver_product_id)
-    scraped_title = m.pop("scraped_title", None) if m else None
-    scraped_tags = m.pop("scraped_tags", None) if m else None
+        for pk in product.keywords:
+            items = _search_keyword(pk.keyword)
+            if items is None:
+                # 조회 실패/구조 변경 — '순위 없음'으로 오기록하지 않고 건너뛴다
+                continue
+            rank = None
+            for item in items:
+                if _item_matches_product(item, product):
+                    # 배열 위치가 아니라 네이버가 준 실제 순위
+                    rank = item["rank"]
+                    if found_title is None:
+                        found_title = _re.sub(r"<[^>]+>", "", item.get("title", "")).strip()
+                    break
+            db.add(ProductRankHistory(
+                product_id=product.id,
+                keyword=pk.keyword,
+                rank=rank,
+                collected_at=now,
+                observation_status="OBSERVED" if rank is not None else "NOT_OBSERVED_WITHIN_LIMIT",
+                max_observed_rank=SEARCH_DISPLAY,
+            ))
+            saved += 1
 
-    commerce_info = fetch_product_commerce_info(
-        product.naver_product_id,
-        product.store.commerce_id_key if product.store else None,
-        product.store.commerce_secret_key if product.store else None,
-    )
-    commerce_title = commerce_info["name"] if commerce_info else None
-    commerce_tags = commerce_info["tags"] if commerce_info else None
-    tags_for_detection = scraped_tags if scraped_tags is not None else commerce_tags
+        # 제목·태그 변경 감지 — 전체 수집과 같은 함수에 위임한다.
+        # 여기에 복붙해두면 한쪽만 고쳐지고 다른 쪽이 조용히 어긋난다.
+        m = _fetch_page_metrics(product.product_url, product.naver_product_id)
+        scraped_title = m.pop("scraped_title", None) if m else None
+        scraped_tags = m.pop("scraped_tags", None) if m else None
 
-    title_for_detection = scraped_title or commerce_title or found_title
-    if title_for_detection:
-        last_naver_title = product.naver_title or product.product_name
-        if title_for_detection != last_naver_title:
-            has_prior = product.naver_title is not None or db.query(ProductRankHistory).filter(
-                ProductRankHistory.product_id == product.id,
-                ProductRankHistory.collected_at < now,
-            ).first() is not None
-            if has_prior:
-                db.add(ProductTitleHistory(
-                    product_id=product.id,
-                    old_title=last_naver_title,
-                    new_title=title_for_detection,
-                    changed_at=now,
-                ))
-        product.naver_title = title_for_detection
-
-    if tags_for_detection is not None:
-        current_tags_str = ",".join(sorted(tags_for_detection))
-        last_tag_row = (
-            db.query(ProductTagHistory)
-            .filter(ProductTagHistory.product_id == product.id)
-            .order_by(ProductTagHistory.changed_at.desc())
-            .first()
+        commerce_info = fetch_product_commerce_info(
+            product.naver_product_id,
+            product.store.commerce_id_key if product.store else None,
+            product.store.commerce_secret_key if product.store else None,
         )
-        last_tags_str = last_tag_row.new_tags if last_tag_row else None
-        if last_tags_str is None:
-            db.add(ProductTagHistory(product_id=product.id, old_tags="", new_tags=current_tags_str, changed_at=now))
-        elif current_tags_str != last_tags_str:
-            db.add(ProductTagHistory(product_id=product.id, old_tags=last_tags_str, new_tags=current_tags_str, changed_at=now))
 
-    db.commit()
-    return {"product_id": product_id, "product_name": product.product_name, "keywords_collected": saved}
+        record_title_and_tag_changes(
+            db, product, now,
+            scraped_title=scraped_title,
+            scraped_tags=scraped_tags,
+            commerce_info=commerce_info,
+            found_title=found_title,
+        )
+
+        db.commit()
+        return {"product_id": product_id, "product_name": product.product_name, "keywords_collected": saved}
+    finally:
+        collect_lock.release()
 
 
 @router.post("/collect")
@@ -560,6 +639,9 @@ def manual_collect(db: Session = Depends(get_db)):
             prev_ranks[(p.id, pk.keyword)] = latest.rank if latest else None
 
     result = collect_all(db)
+    if result.get("skipped"):
+        # 스케줄러 수집이 아직 돌고 있다. 겹쳐 돌리면 제목 변경 이력이 중복된다.
+        return {"skipped": True, "message": "이미 수집이 진행 중입니다. 잠시 후 다시 시도해 주세요."}
 
     # 스토어별 데이터: alerts(5위이상 급변동), changes(2위이상 summary용)
     store_data: dict[int, dict] = {}

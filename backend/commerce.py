@@ -83,7 +83,7 @@ def fetch_product_commerce_info(
     secret_key: str | None = None,
 ) -> dict | None:
     """커머스 API로 상품명·검색태그를 한 번에 가져온다.
-    반환: {"name": str | None, "tags": list[str]} 또는 None(API 실패 시)
+    반환: {"name", "channel_name", "origin_name", "tags"} 또는 None(API 실패 시)
 
     id_key/secret_key는 해당 상품이 속한 스토어의 자격증명 env 변수명이다.
     커머스 API 앱은 판매자 계정 단위라, 다른 스토어 상품을 조회하면 403이 난다.
@@ -103,10 +103,12 @@ def fetch_product_commerce_info(
         if resp.status_code != 200:
             return None
         data = resp.json()
-        name = (
-            data.get("originProduct", {}).get("name")
-            or data.get("channelProduct", {}).get("channelProductDisplayName")
-        )
+        # 네이버 쇼핑 검색·스토어 페이지에 실제로 노출되는 건 채널 노출명이다.
+        # 원상품명(originProduct.name)을 우선하면 채널 노출명만 바뀐 수정을
+        # 영영 못 잡는다 — 검색 결과에는 새 제목이 뜨는데 이력엔 안 남는다.
+        origin_name = (data.get("originProduct") or {}).get("name")
+        channel_name = (data.get("channelProduct") or {}).get("channelProductDisplayName")
+        name = channel_name or origin_name
         seller_tags = (
             data.get("originProduct", {})
             .get("detailAttribute", {})
@@ -114,7 +116,12 @@ def fetch_product_commerce_info(
             .get("sellerTags", [])
         )
         tags = [t.get("text", "").strip() for t in seller_tags if t.get("text")]
-        return {"name": name, "tags": tags}
+        return {
+            "name": name,
+            "channel_name": channel_name,
+            "origin_name": origin_name,
+            "tags": tags,
+        }
     except Exception:
         return None
 

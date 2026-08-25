@@ -84,6 +84,11 @@ def _run_collection_inner():
                 prev_ranks[(p.id, pk.keyword)] = latest.rank if latest else None
 
         result = collect_all(db)
+        if result.get("skipped"):
+            # 앞 회차가 아직 돌고 있다. 알림까지 진행하면 변동 없는 요약이 한 번 더 나간다.
+            import logging as _logging
+            _logging.warning("수집 건너뜀 — %s", result.get("reason"))
+            return
 
         import os as _os
         # 스토어별 데이터: alerts(5위이상), changes(2위이상 summary용)
