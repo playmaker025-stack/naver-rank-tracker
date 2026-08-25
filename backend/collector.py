@@ -396,7 +396,19 @@ def record_title_and_tag_changes(
     title_for_detection = scraped_title or commerce_title or found_title
     if title_for_detection:
         last_title = product.naver_title or product.product_name
-        if _norm(title_for_detection) != _norm(last_title):
+
+        # 추적 필드를 원상품명 → 채널 노출명으로 옮기는 첫 회차는 조용히 기준값만
+        # 갈아끼운다. 그냥 두면 판매자가 아무것도 안 건드렸는데 전 상품에
+        # "원상품명 → 채널 노출명" 가짜 변경이 한꺼번에 기록된다.
+        # 저장값이 원상품명과 정확히 같을 때만 해당되므로 상품당 한 번만 걸린다.
+        field_migration = bool(
+            commerce_info
+            and commerce_info.get("channel_name")
+            and _norm(title_for_detection) == _norm(commerce_info["channel_name"])
+            and _norm(last_title) == _norm(commerce_info.get("origin_name"))
+        )
+
+        if not field_migration and _norm(title_for_detection) != _norm(last_title):
             has_prior = product.naver_title is not None or db.query(ProductRankHistory).filter(
                 ProductRankHistory.product_id == product.id,
                 ProductRankHistory.collected_at < collected_at,
